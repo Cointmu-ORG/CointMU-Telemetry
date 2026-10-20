@@ -86,6 +86,25 @@ services:
       retries: 10
       start_period: 60s
 
+  # The image is distroless (no shell, no wget), so there is no in-container
+  # healthcheck; RUNBOOK.md checks /ready through the grafana container.
+  loki:
+    <<: [*hardening, *logging]
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    command: ["-config.file=/etc/loki/config.yml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-720h}
+      # Go GC works harder before mem_limit is hit instead of being OOM-killed.
+      GOMEMLIMIT: 600MiB
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [logs]
+    mem_limit: 768m
+    pids_limit: 200
+
   proxy:
     <<: [*hardening, *logging]
     image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
@@ -120,7 +139,11 @@ networks:
   backend:
     internal: true
   frontend: {}
+  # Loki and Grafana: reachable only from the proxy, no route out, no Postgres.
+  logs:
+    internal: true
 
 volumes:
   pg-data:
   uploads:
+  loki-data:
