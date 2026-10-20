@@ -35,6 +35,7 @@ A VM with **2 vCPU, 2–4 GB RAM and 40 GB disk** is plenty for this stack.
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | Registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off |
+| Logs | `json-file` driver rotated at 10 MB × 3 files per container |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only nginx, memory and PID limits, health checks on every service |
 
 ## Deploy
