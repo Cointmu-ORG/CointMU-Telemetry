@@ -1,0 +1,137 @@
+# CointMU Telemetry
+
+Error collector for the CointMU desktop app ([CointMU-App#57](https://github.com/Cointmu-ORG/CointMU-App/issues/57)):
+[GlitchTip](https://glitchtip.com) (Sentry-protocol compatible) behind an nginx TLS proxy,
+reachable only from the campus LAN. The app talks plain Sentry protocol, so this server
+can be swapped for any Sentry-compatible backend by changing the DSN and pin in the app build.
+
+```
+CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ──▶ PostgreSQL
+  campus LAN only (firewall + bind)   rate limit     IP + PII scrub
+```
+
+## Why GlitchTip, not self-hosted Sentry
+
+| | Self-hosted Sentry | GlitchTip |
+|---|---|---|
+| CPU | 4 cores minimum | x86 or arm64 |
+| RAM | 16 GB + 16 GB swap minimum, 32 GB recommended | 512 MB recommended, 256 MB minimum (all-in-one) |
+| Disk | 20 GB minimum, high IOPS | about 30 GB per 1M events/month |
+| Services | many containers, Docker Compose ≥ 2.32.2 | PostgreSQL 14+ and one app container (Valkey optional) |
+
+Sources: [develop.sentry.dev/self-hosted](https://develop.sentry.dev/self-hosted/),
+[glitchtip.com/documentation/install](https://glitchtip.com/documentation/install).
+A VM with **2 vCPU, 2–4 GB RAM and 40 GB disk** is plenty for this stack.
+
+## What this repo sets up
+
+| Piece | Choice |
+|---|---|
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly |
+| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out. Event ingest and `/_health/` are open to the campus LAN, the dashboard and API only to the addresses in `nginx/admin-allow.conf` |
+| TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
+| Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
+| IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`, its access log has no client IP or query string, and IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
+| PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
+| Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
+| Accounts | Registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off |
+| Logs | `json-file` driver rotated at 10 MB × 3 files per container |
+| Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only nginx, memory and PID limits, health checks on every service |
+
+## Deploy
+
+On the VM (Docker Engine with the Compose plugin):
+
+```bash
+git clone https://github.com/Cointmu-ORG/CointMU-Telemetry.git && cd CointMU-Telemetry
+
+# 1. Configuration
+cp .env.example .env && chmod 600 .env
+# set BIND_IP and GLITCHTIP_HOST to the VM's campus IP, then:
+sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
+sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
+
+# 2. Host group for the TLS key. The proxy joins it (group_add), nobody else does.
+#    groupadd --system picks a free GID; check it is not taken, and not 101 (syslog):
+sudo groupadd --system cointmu-tls
+TLS_GID=$(getent group cointmu-tls | cut -d: -f3) && getent group "$TLS_GID"
+sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
+
+#    TLS key + certificate (SAN must match GLITCHTIP_HOST); prints the pin.
+#    Run as yourself, not root: it asks for sudo once to hand the key to that group.
+scripts/gen-cert.sh new IP:10.0.0.10
+
+# 3. Admin allowlist for the dashboard and API (compose refuses to start without it)
+cp nginx/admin-allow.conf.example nginx/admin-allow.conf
+# add one "allow <address or subnet>;" line per admin machine or subnet
+
+# 4. Firewall (see below), then start
+docker compose up -d
+docker compose ps          # all three services "healthy"
+
+# 5. Admin account and the CointMU project; prints the DSN
+docker compose exec web ./manage.py createsuperuser
+scripts/init-project.sh admin@example.com
+```
+
+Back up `.env`, `nginx/admin-allow.conf` and `certs/` somewhere safe and private. They are git-ignored and the
+server cannot be rebuilt with the same pin without `certs/server.key`.
+
+## Connect the app
+
+The app reads both values at **build time**. In the CointMU-App repository, set the
+repository variables (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Value |
+|---|---|
+| `TELEMETRY_DSN` | the `DSN=` line from `init-project.sh` |
+| `TELEMETRY_PINS` | the pin from `gen-cert.sh`; during a key rotation, `current,next` |
+
+Check the pin the live server presents: `scripts/print-pin.sh 10.0.0.10:443`.
+Release builds made without these variables have reporting off.
+
+## Firewall
+
+Allow HTTPS only from the campus LAN and SSH only from the admins' subnet. Docker's
+published ports bypass ufw's normal rules, so the HTTPS rule goes in the `DOCKER-USER`
+chain (`firewall/ufw-after.rules.snippet`). The snippet has two placeholders,
+`<CAMPUS_SUBNET>` and `<HTTPS_PORT>`; the port is taken from `.env` so the rule guards
+the port that is actually published:
+
+```bash
+sudo ufw default deny incoming
+sudo ufw allow from <ADMIN_SUBNET> to any port 22 proto tcp
+CAMPUS_SUBNET='<CAMPUS_SUBNET>'   # the real campus LAN, e.g. 10.0.0.0/16
+HTTPS_PORT=$(sed -n 's/^HTTPS_PORT=//p' .env)
+sed -e "s|<CAMPUS_SUBNET>|$CAMPUS_SUBNET|g" -e "s|<HTTPS_PORT>|${HTTPS_PORT:-443}|g" \
+  firewall/ufw-after.rules.snippet | sudo tee -a /etc/ufw/after.rules >/dev/null
+sudo ufw enable && sudo ufw reload && sudo systemctl restart docker
+```
+
+If you change `HTTPS_PORT` later, change the two `--ctorigdstport` values in
+`/etc/ufw/after.rules` to match, or the new port is open to every network.
+
+The proxy is also bound to `BIND_IP` only, so it never listens on other interfaces.
+Verify from a machine outside the LAN that `HTTPS_PORT` times out, and from a campus
+machine that is not in `admin-allow.conf` that the dashboard answers 403.
+
+The admin allowlist sees the real client address only with rootful Docker (the default
+iptables port publishing). Rootless Docker's default port driver hides it, so every
+request would look like the same internal address.
+
+## Backups
+
+`scripts/backup.sh` writes `backup/glitchtip-<UTC>.sql.gz` and keeps every dump from the
+last 7 days plus Sunday dumps for 28 days. Schedule it and copy the folder off the VM:
+
+```cron
+15 2 * * * cd /opt/CointMU-Telemetry && scripts/backup.sh >> backup/backup.log 2>&1 && rsync -a --delete backup/ backup-host:/srv/cointmu-telemetry/
+```
+
+Restore with `scripts/restore.sh backup/<file>.sql.gz` (asks for confirmation, replaces
+all current data). Test a restore after setting this up.
+
+## Operations
+
+See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal,
+restore, disk full, upgrades, and "reports are not arriving".
