@@ -73,7 +73,9 @@ Stops web and proxy, recreates the database from the dump, starts them again.
 
 1. Run `scripts/backup.sh` first.
 2. Read the GlitchTip release notes ([glitchtip.com/blog](https://glitchtip.com/blog)) for
-   breaking changes. Bump the pinned tag in `compose.yml` through a PR.
+   breaking changes. Dependabot opens a weekly PR that bumps the tag and digest in
+   `compose.yml`; to bump by hand, change both, taking the digest from
+   `docker buildx imagetools inspect <image>:<tag>` (the top-level `Digest`).
 3. `docker compose pull && docker compose up -d`. GlitchTip runs its migrations on start.
 4. Postgres **major** upgrades (18 → 19) need a dump and restore into a fresh volume.
    Minor tags (18.6 → 18.7) only need a pull and restart.

@@ -27,7 +27,7 @@ A VM with **2 vCPU, 2–4 GB RAM and 40 GB disk** is plenty for this stack.
 
 | Piece | Choice |
 |---|---|
-| Images (pinned) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine` |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out. Event ingest and `/_health/` are open to the campus LAN, the dashboard and API only to the addresses in `nginx/admin-allow.conf` |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |

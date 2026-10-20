@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # compose.yml images (tag@digest pins): one PR per new tag or rebuilt digest.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

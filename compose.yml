@@ -1,5 +1,7 @@
 # GlitchTip (Sentry-protocol error collector) for CointMU, behind a TLS proxy.
 # Only the proxy is published, and only on the campus LAN address (BIND_IP).
+# Images are pinned as tag@digest: Docker pulls by digest, the tag says which
+# release it is and lets Dependabot propose the next one (tag and digest).
 
 x-hardening: &hardening
   restart: unless-stopped
@@ -36,7 +38,7 @@ x-glitchtip-env: &glitchtip-env
 services:
   postgres:
     <<: *hardening
-    image: postgres:18.6-alpine
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     # The entrypoint chowns the data dir and drops to the postgres user.
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     environment:
@@ -56,7 +58,7 @@ services:
 
   web:
     <<: *hardening
-    image: glitchtip/glitchtip:6.2.6
+    image: glitchtip/glitchtip:6.2.6@sha256:a3d8eb1b36c1e1603d55ab32711ea3dd8115874742a781a57391a62a16e0dff6
     environment: *glitchtip-env
     volumes:
       - uploads:/code/uploads
@@ -78,7 +80,7 @@ services:
 
   proxy:
     <<: *hardening
-    image: nginxinc/nginx-unprivileged:1.31.7-alpine
+    image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
     ports:
       - "${BIND_IP:?set in .env}:${HTTPS_PORT:-443}:8443"
     volumes:
