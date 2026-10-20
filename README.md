@@ -29,7 +29,7 @@ A VM with **2 vCPU, 2–4 GB RAM and 40 GB disk** is plenty for this stack.
 |---|---|
 | Images (pinned) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine` |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out |
-| TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256) |
+| TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
 | IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`, its access log has no client IP or query string, and IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
@@ -50,7 +50,14 @@ cp .env.example .env && chmod 600 .env
 sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
 sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
 
-# 2. TLS key + certificate (SAN must match GLITCHTIP_HOST); prints the pin
+# 2. Host group for the TLS key. The proxy joins it (group_add), nobody else does.
+#    groupadd --system picks a free GID; check it is not taken, and not 101 (syslog):
+sudo groupadd --system cointmu-tls
+TLS_GID=$(getent group cointmu-tls | cut -d: -f3) && getent group "$TLS_GID"
+sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
+
+#    TLS key + certificate (SAN must match GLITCHTIP_HOST); prints the pin.
+#    Run as yourself, not root: it asks for sudo once to hand the key to that group.
 scripts/gen-cert.sh new IP:10.64.24.250
 
 # 3. Firewall (see below), then start

@@ -84,6 +84,8 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
+    # nginx (UID 101) reads certs/server.key through this dedicated host group.
+    group_add: ["${TLS_GID:?set in .env}"]
     read_only: true
     tmpfs: [/tmp]
     networks: [frontend]

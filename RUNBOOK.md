@@ -25,7 +25,8 @@ is installed. Rotate in this order:
    ```
    Apps from step 2 on accept it. Older apps queue reports until they update.
 5. **Drop the old pin**: set `TELEMETRY_PINS=<new current>` in the next app release.
-   Delete `certs/server.key.old` once no supported release pins it.
+   `certs/server.key.old` is kept at mode 600 (the proxy cannot read it); delete it
+   once no supported release pins it.
 
 If the key leaked, skip the waiting in step 3: promote immediately and ship the release
 with the new pin as soon as possible. Reports from older apps queue until users update.
@@ -37,7 +38,9 @@ scripts/gen-cert.sh renew IP:10.64.24.250
 docker compose restart proxy
 ```
 
-No app release needed. Also use this when the server IP changes, together with
+No app release needed. `renew` also resets the key permissions (`server.key` 640 with
+group `TLS_GID`, everything else 600), so run it once on a server whose key was made by
+an older `gen-cert.sh` (mode 644 or group 101). Also use this when the server IP changes, together with
 `BIND_IP`/`GLITCHTIP_HOST` in `.env`. A new IP also changes the DSN, which does need an
 app release.
 
