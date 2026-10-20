@@ -4,3 +4,4 @@ certs/
 backup/
 *.key
 *.sql.gz
+nginx/admin-allow.conf

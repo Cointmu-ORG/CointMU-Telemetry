@@ -28,7 +28,7 @@ A VM with **2 vCPU, 2–4 GB RAM and 40 GB disk** is plenty for this stack.
 | Piece | Choice |
 |---|---|
 | Images (pinned) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine` |
-| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out |
+| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out. Event ingest and `/_health/` are open to the campus LAN, the dashboard and API only to the addresses in `nginx/admin-allow.conf` |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
 | IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`, its access log has no client IP or query string, and IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
@@ -60,16 +60,20 @@ sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
 #    Run as yourself, not root: it asks for sudo once to hand the key to that group.
 scripts/gen-cert.sh new IP:10.64.24.250
 
-# 3. Firewall (see below), then start
+# 3. Admin allowlist for the dashboard and API (compose refuses to start without it)
+cp nginx/admin-allow.conf.example nginx/admin-allow.conf
+# add one "allow <address or subnet>;" line per admin machine or subnet
+
+# 4. Firewall (see below), then start
 docker compose up -d
 docker compose ps          # all three services "healthy"
 
-# 4. Admin account and the CointMU project; prints the DSN
+# 5. Admin account and the CointMU project; prints the DSN
 docker compose exec web ./manage.py createsuperuser
 scripts/init-project.sh admin@example.com
 ```
 
-Back up `.env` and `certs/` somewhere safe and private. They are git-ignored and the
+Back up `.env`, `nginx/admin-allow.conf` and `certs/` somewhere safe and private. They are git-ignored and the
 server cannot be rebuilt with the same pin without `certs/server.key`.
 
 ## Connect the app
@@ -100,7 +104,12 @@ sudo ufw enable && sudo ufw reload && sudo systemctl restart docker
 ```
 
 The proxy is also bound to `BIND_IP` only, so it never listens on other interfaces.
-Verify from a machine outside the LAN that port 443 times out.
+Verify from a machine outside the LAN that port 443 times out, and from a campus
+machine that is not in `admin-allow.conf` that the dashboard answers 403.
+
+The admin allowlist sees the real client address only with rootful Docker (the default
+iptables port publishing). Rootless Docker's default port driver hides it, so every
+request would look like the same internal address.
 
 ## Backups
 
