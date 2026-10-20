@@ -1,0 +1,16 @@
+# Append to /etc/ufw/after.rules (replace 10.64.0.0/16 with the campus LAN),
+# then: sudo ufw reload && sudo systemctl restart docker
+#
+# Docker publishes ports through its own NAT rules, which bypass ufw's INPUT
+# chain. DOCKER-USER is evaluated first for container traffic, so the LAN-only
+# rule for the published HTTPS port has to live here. Matching on the original
+# destination port keeps it correct after Docker's DNAT to the container port.
+
+# BEGIN cointmu-telemetry
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -p tcp -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -s 10.64.0.0/16 -j RETURN
+-A DOCKER-USER -p tcp -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -j DROP
+COMMIT
+# END cointmu-telemetry

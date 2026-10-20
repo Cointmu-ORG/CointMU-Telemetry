@@ -1,0 +1,6 @@
+# Secrets and per-host state never go in git.
+.env
+certs/
+backup/
+*.key
+*.sql.gz
