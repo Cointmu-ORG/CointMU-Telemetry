@@ -2,7 +2,7 @@
 # Prints the SPKI SHA-256 pin (base64) that the app expects.
 #
 #   scripts/print-pin.sh certs/server.crt   from a certificate file
-#   scripts/print-pin.sh 10.64.24.250:443   from what a live server presents
+#   scripts/print-pin.sh 10.0.0.10:443   from what a live server presents
 set -euo pipefail
 
 [[ $# -eq 1 ]] || { sed -n '2,5p' "$0" >&2; exit 2; }

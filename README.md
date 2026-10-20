@@ -58,7 +58,7 @@ sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
 
 #    TLS key + certificate (SAN must match GLITCHTIP_HOST); prints the pin.
 #    Run as yourself, not root: it asks for sudo once to hand the key to that group.
-scripts/gen-cert.sh new IP:10.64.24.250
+scripts/gen-cert.sh new IP:10.0.0.10
 
 # 3. Admin allowlist for the dashboard and API (compose refuses to start without it)
 cp nginx/admin-allow.conf.example nginx/admin-allow.conf
@@ -86,25 +86,32 @@ repository variables (Settings → Secrets and variables → Actions → Variabl
 | `TELEMETRY_DSN` | the `DSN=` line from `init-project.sh` |
 | `TELEMETRY_PINS` | the pin from `gen-cert.sh`; during a key rotation, `current,next` |
 
-Check the pin the live server presents: `scripts/print-pin.sh 10.64.24.250:443`.
+Check the pin the live server presents: `scripts/print-pin.sh 10.0.0.10:443`.
 Release builds made without these variables have reporting off.
 
 ## Firewall
 
 Allow HTTPS only from the campus LAN and SSH only from the admins' subnet. Docker's
 published ports bypass ufw's normal rules, so the HTTPS rule goes in the `DOCKER-USER`
-chain (`firewall/ufw-after.rules.snippet`):
+chain (`firewall/ufw-after.rules.snippet`). The snippet has two placeholders,
+`<CAMPUS_SUBNET>` and `<HTTPS_PORT>`; the port is taken from `.env` so the rule guards
+the port that is actually published:
 
 ```bash
 sudo ufw default deny incoming
-sudo ufw allow from <admin-subnet> to any port 22 proto tcp
-# edit the subnet in the snippet, then append it to /etc/ufw/after.rules
-sudo sh -c 'cat firewall/ufw-after.rules.snippet >> /etc/ufw/after.rules'
+sudo ufw allow from <ADMIN_SUBNET> to any port 22 proto tcp
+CAMPUS_SUBNET='<CAMPUS_SUBNET>'   # the real campus LAN, e.g. 10.0.0.0/16
+HTTPS_PORT=$(sed -n 's/^HTTPS_PORT=//p' .env)
+sed -e "s|<CAMPUS_SUBNET>|$CAMPUS_SUBNET|g" -e "s|<HTTPS_PORT>|${HTTPS_PORT:-443}|g" \
+  firewall/ufw-after.rules.snippet | sudo tee -a /etc/ufw/after.rules >/dev/null
 sudo ufw enable && sudo ufw reload && sudo systemctl restart docker
 ```
 
+If you change `HTTPS_PORT` later, change the two `--ctorigdstport` values in
+`/etc/ufw/after.rules` to match, or the new port is open to every network.
+
 The proxy is also bound to `BIND_IP` only, so it never listens on other interfaces.
-Verify from a machine outside the LAN that port 443 times out, and from a campus
+Verify from a machine outside the LAN that `HTTPS_PORT` times out, and from a campus
 machine that is not in `admin-allow.conf` that the dashboard answers 403.
 
 The admin allowlist sees the real client address only with rootful Docker (the default

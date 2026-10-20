@@ -19,9 +19,9 @@ is installed. Rotate in this order:
    keep working because the server still presents the current key.
 4. **Switch the server**:
    ```bash
-   scripts/gen-cert.sh promote IP:10.64.24.250
+   scripts/gen-cert.sh promote IP:10.0.0.10
    docker compose restart proxy
-   scripts/print-pin.sh 10.64.24.250:443   # must equal the former "next" pin
+   scripts/print-pin.sh 10.0.0.10:443   # must equal the former "next" pin
    ```
    Apps from step 2 on accept it. Older apps queue reports until they update.
 5. **Drop the old pin**: set `TELEMETRY_PINS=<new current>` in the next app release.
@@ -34,7 +34,7 @@ with the new pin as soon as possible. Reports from older apps queue until users 
 ## Certificate renewal (same key, pin unchanged)
 
 ```bash
-scripts/gen-cert.sh renew IP:10.64.24.250
+scripts/gen-cert.sh renew IP:10.0.0.10
 docker compose restart proxy
 ```
 
@@ -48,7 +48,7 @@ app release.
 
 1. `docker compose ps`: all services healthy? `docker compose logs --tail=100 web proxy`.
 2. From a campus machine: `curl -k https://<server>/_health/` returns 200?
-3. Pin: `scripts/print-pin.sh <server>:443` must be in the app's `TELEMETRY_PINS`.
+3. Pin: `scripts/print-pin.sh <server>:<HTTPS_PORT>` must be in the app's `TELEMETRY_PINS`.
 4. nginx log (`docker compose logs proxy`): `POST /api/<id>/envelope/` lines with 200?
    429 means rate limited, 413 too large.
 5. On the laptop: Settings → Privacy & Diagnostics shows reporting on and the queue.

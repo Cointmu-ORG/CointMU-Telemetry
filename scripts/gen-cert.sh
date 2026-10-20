@@ -8,7 +8,7 @@
 #   scripts/gen-cert.sh next           pre-generate the next key, print its pin
 #   scripts/gen-cert.sh promote <san>  switch to the next key (old key kept as .old)
 #
-# <san> is the subjectAltName, e.g. IP:10.64.24.250 or DNS:telemetry.lan
+# <san> is the subjectAltName, e.g. IP:10.0.0.10 or DNS:telemetry.lan
 #
 # Run as the admin user, not root. server.key ends up mode 640, owned by you
 # with group TLS_GID from .env (a dedicated host group the proxy joins through
