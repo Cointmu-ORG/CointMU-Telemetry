@@ -1,5 +1,0 @@
-# Copy to nginx/admin-allow.conf (git-ignored) and list the admins' addresses,
-# one "allow" per line. Everything not listed gets 403 on the dashboard and API;
-# event ingest and /_health/ stay open to the campus LAN.
-# allow <ADMIN_SUBNET>;    e.g. allow 10.0.0.0/24;
-# allow <ADMIN_IP>;        e.g. allow 10.0.0.42;

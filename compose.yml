@@ -158,18 +158,21 @@ services:
       - "${BIND_IP:?set in .env}:${HTTPS_PORT:-443}:8443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      # Per-host admin allowlist; refuse to start if it was not created.
+      # Per-host allowlists and agent logins (git-ignored). A folder, not single
+      # files, so edits show up after "nginx -s reload" whatever the editor does.
       - type: bind
-        source: ./nginx/admin-allow.conf
-        target: /etc/nginx/admin-allow.conf
+        source: ./nginx/local
+        target: /etc/nginx/local
         read_only: true
         bind: { create_host_path: false }
+      # Refuses to start while a file in nginx/local/ is missing.
+      - ./nginx/require-local.sh:/docker-entrypoint.d/05-require-local.sh:ro
       - ./certs:/etc/nginx/certs:ro
     # nginx (UID 101) reads certs/server.key through this dedicated host group.
     group_add: ["${TLS_GID:?set in .env}"]
     read_only: true
     tmpfs: [/tmp]
-    networks: [frontend]
+    networks: [frontend, logs]
     depends_on:
       web: { condition: service_healthy }
     mem_limit: 64m

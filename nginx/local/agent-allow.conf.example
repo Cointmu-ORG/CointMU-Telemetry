@@ -1,0 +1,10 @@
+# Copy to nginx/local/agent-allow.conf (git-ignored) and list where the geth
+# node agents (Grafana Alloy) push logs from, one "<address or subnet> 1;" per
+# line (nginx geo syntax, unlike admin-allow.conf). Only these addresses reach
+# POST /loki/api/v1/push; each agent also needs its own login in
+# loki-agents.htpasswd (scripts/agent-cred.sh). Keep this list separate from
+# the admin list: laptops on the campus LAN must get 403 here.
+# <SERVER_SUBNET> 1;       e.g. 10.0.1.0/24 1;
+# <SERVER_IP> 1;           e.g. 10.0.1.20 1;
+# Nodes pushing over Tailscale: their tailnet IP, not the whole 100.64.0.0/10.
+# <NODE_TAILNET_IP> 1;     e.g. 100.101.102.104 1;
