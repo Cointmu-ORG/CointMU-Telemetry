@@ -1,0 +1,11 @@
+INFO [10-20|15:44:33.401] Commit new sealing work                  number=254,324 sealhash=3df55d..bfb9af uncles=0 txs=0 gas=0     fees=0       elapsed="183.515µs"
+INFO [10-20|10:33:31.915] New local node record                    seq=1,782,197,405,730 id=0a1b2c3d4e5f6a7b ip=192.0.2.10 udp=30303 tcp=30303
+INFO [10-20|10:33:32.002] Started P2P networking                   self=enode://0a1b2c3d4e5f6a7b8c9d0e1f0a1b2c3d4e5f6a7b8c9d0e1f0a1b2c3d4e5f6a7b8c9d0e1f0a1b2c3d4e5f6a7b8c9d0e1f0a1b2c3d4e5f6a7b8c9d0e1f0a1b2c3d@192.0.2.10:30303
+WARN [10-20|10:46:19.977] Synchronisation failed, dropping peer    peer=fedcba9876543210fedcba9876543210 err="retrieved hash chain is invalid: block in the future"
+WARN [10-20|10:50:05.732] Synchronisation failed, retrying         err="write tcp 198.51.100.7:30304->100.101.102.103:49736: use of closed network connection"
+ERROR[10-20|10:46:19.977] Failed to retrieve beacon bounds for bad block reporting err="beacon sync not yet started"
+EROR[10-20|10:47:00.100] Peer dial failed                         addr=[2001:db8::1]:30303 conn=203.0.113.5:40000
+CRIT[10-20|10:48:00.100] Database corrupt                         peer=0a1b2c3d..4e5f6a7b node=enr:-KO4QHwSLdPxyz_example-record
+DEBUG[10-20|10:49:00.100] Served eth_blockNumber                   conn=100.64.0.9:51234 reqid=7
+INFO [10-20|10:49:30.100] Listening                                addr=[::]:30303 full=2001:db8:0:0:0:0:0:42
+Fatal: Failed to start the node: listen tcp 0.0.0.0:30303: bind: address already in use

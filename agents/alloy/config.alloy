@@ -1,0 +1,153 @@
+// Grafana Alloy on a geth node server: reads the geth logs, labels them,
+// redacts peer addresses and node IDs, and pushes them to the telemetry VM's
+// Loki endpoint. Settings come from /etc/default/alloy (alloy.env.example).
+// Needs --stability.level=experimental for the write-ahead log (WAL).
+
+// --- Sources: a log file, the journal, or both. An empty variable turns its
+// --- source off; both feed the same pipeline, so the labels are the same.
+
+// GETH_LOG_FILES: one path or glob. Match the live files only, never the
+// rotated copies (pm2-logrotate's "name__<date>.log", geth's "geth-<time>.log"),
+// or rotated lines are pushed a second time.
+local.file_match "geth" {
+	path_targets = [{
+		__path__ = sys.env("GETH_LOG_FILES"),
+		job      = "geth",
+	}]
+}
+
+loki.source.file "geth" {
+	targets    = local.file_match.geth.targets
+	forward_to = [loki.process.geth.receiver]
+	// Lines are stamped when read, so skip what was logged before the first start.
+	tail_from_end = true
+}
+
+// GETH_JOURNAL_UNIT: one systemd unit, e.g. geth.service.
+loki.source.journal "geth" {
+	matches       = "_SYSTEMD_UNIT=" + sys.env("GETH_JOURNAL_UNIT")
+	labels        = {job = "geth"}
+	relabel_rules = loki.relabel.journal.rules
+	forward_to    = [loki.process.geth.receiver]
+}
+
+// role from the unit name: cointmu-miner.service -> miner, geth.service -> geth.
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		regex         = "(?:cointmu-)?(.+)\\.service"
+		target_label  = "role"
+	}
+}
+
+// --- Pipeline ---------------------------------------------------------------
+
+loki.process "geth" {
+	// role from the file name: cointmu-bootnode-error.log -> bootnode (PM2),
+	// geth.log -> geth. Journal lines have no filename and keep their role.
+	stage.regex {
+		source     = "filename"
+		expression = "(?:^|/)(?:cointmu-)?(?P<role>[A-Za-z0-9_]+?)(?:-error|-out)?\\.log$"
+	}
+
+	stage.labels {
+		values = {role = ""}
+	}
+
+	// Geth glues the level to "[" (ERROR[10-20|...]); some builds write EROR.
+	// "Fatal: ..." is printed on startup aborts. Other lines (stack traces)
+	// get no level label.
+	stage.regex {
+		expression = "^(?P<level>TRACE|DEBUG|INFO|WARN|EROR|ERROR|CRIT|Fatal)\\b"
+	}
+
+	stage.template {
+		source   = "level"
+		template = "{{ if eq .Value \"EROR\" }}error{{ else }}{{ ToLower .Value }}{{ end }}"
+	}
+
+	// Debug output is the bulk of the volume and carries RPC client addresses.
+	stage.drop {
+		source     = "level"
+		expression = "^(debug|trace)$"
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	// Privacy: peers of a bootnode are students' laptops, so their addresses
+	// and node keys (a stable per-install ID) never leave this machine. The raw
+	// lines stay in the local log file for debugging over SSH.
+	stage.replace {
+		expression = "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b"
+		replace    = "<ip>"
+	}
+
+	// ponytail: IPv6 heuristic (full 8 groups or anything with "::"); it skips
+	// clock times like 15:44:33. Swap for a stricter parser if it misfires.
+	stage.replace {
+		expression = "((?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{0,4}::(?:[0-9a-fA-F]{1,4}:?){0,6})"
+		replace    = "<ip>"
+	}
+
+	// Node IDs: enode://<id>@, id=<id>, peer=<id> (full or shortened), and ENR
+	// records, which encode the IP address.
+	stage.replace {
+		expression = "(?:enode://|\\b(?:id|peer)=)([0-9a-fA-F]{8,}(?:\\.\\.[0-9a-fA-F]+)?)"
+		replace    = "<node-id>"
+	}
+
+	stage.replace {
+		expression = "(enr:-[A-Za-z0-9_-]+)"
+		replace    = "<enr>"
+	}
+
+	forward_to = [loki.write.telemetry.receiver]
+}
+
+// --- Push -------------------------------------------------------------------
+
+loki.write "telemetry" {
+	endpoint {
+		// LOKI_PUSH_URL: https://<telemetry VM>/loki/api/v1/push
+		url = sys.env("LOKI_PUSH_URL")
+
+		basic_auth {
+			username      = sys.env("LOKI_PUSH_USER")
+			password_file = "/etc/alloy/push-password"
+		}
+
+		// The VM's self-signed certificate (certs/server.crt) is the only trust
+		// anchor. Never set insecure_skip_verify.
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+
+		// Retry 429 and 5xx forever while the WAL holds the backlog. Other 4xx
+		// (401, 403, 413) are not retried: that batch is dropped.
+		max_backoff_retries = 0
+		max_backoff_period  = "5m"
+
+		// Lines move from the WAL into this in-memory queue. If Alloy stops
+		// while the VM is unreachable, the queued batches are dropped and the
+		// WAL counts them as sent. Two batches (each at most a second of logs)
+		// keep the rest of the backlog on disk; the default 10 MiB would hold
+		// the whole outage in memory.
+		queue_config {
+			capacity = "2MiB"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
+	}
+
+	// Disk buffer for outages up to a day; older unsent segments are deleted.
+	wal {
+		enabled         = true
+		max_segment_age = "24h"
+	}
+}
