@@ -1,0 +1,60 @@
+# Single-binary Loki for the geth node logs. One tenant: nginx authenticates
+# the agents, so Loki itself runs without auth on the internal "logs" network.
+# ${VAR} values come from .env (Loki runs with -config.expand-env=true).
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: 2026-10-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# Retention is applied by the compactor; nothing else deletes chunks.
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+# Measured on the bootnode host: about 10 MB of INFO logs per day for two geth
+# processes. These limits leave room for an agent draining a day of WAL
+# backlog while capping what a misbehaving agent can write.
+limits_config:
+  retention_period: ${LOKI_RETENTION_PERIOD:-720h}
+  ingestion_rate_mb: 1
+  ingestion_burst_size_mb: 4
+  per_stream_rate_limit: 512KB
+  per_stream_rate_limit_burst: 2MB
+  max_line_size: 256KB
+  max_line_size_truncate: true
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  max_global_streams_per_user: 1000
+  max_label_names_per_series: 10
+  max_query_lookback: ${LOKI_RETENTION_PERIOD:-720h}
+
+# The "logs" network has no route out anyway; this stops the attempts.
+analytics:
+  reporting_enabled: false

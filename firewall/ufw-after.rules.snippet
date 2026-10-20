@@ -1,7 +1,9 @@
-# Fill in both placeholders, then append to /etc/ufw/after.rules and run
+# Fill in the placeholders, then append to /etc/ufw/after.rules and run
 # sudo ufw reload && sudo systemctl restart docker (README.md has the command):
-#   <CAMPUS_SUBNET>  the campus LAN, e.g. 10.0.0.0/16
-#   <HTTPS_PORT>     HTTPS_PORT from .env (the host port, not the container's 8443)
+#   <CAMPUS_SUBNET>     the campus LAN, e.g. 10.0.0.0/16
+#   <TAILSCALE_SUBNET>  allowed tailnet IPs, comma-separated, e.g. 100.101.102.103/32
+#                       (delete that line when nobody comes in over Tailscale)
+#   <HTTPS_PORT>        HTTPS_PORT from .env (the host port, not the container's 8443)
 # If HTTPS_PORT changes later, change it here and in /etc/ufw/after.rules too,
 # or the new port is open to everyone and the old rule guards nothing.
 #
@@ -15,6 +17,7 @@
 :DOCKER-USER - [0:0]
 -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
 -A DOCKER-USER -p tcp -m conntrack --ctorigdstport <HTTPS_PORT> --ctdir ORIGINAL -s <CAMPUS_SUBNET> -j RETURN
+-A DOCKER-USER -p tcp -m conntrack --ctorigdstport <HTTPS_PORT> --ctdir ORIGINAL -s <TAILSCALE_SUBNET> -j RETURN
 -A DOCKER-USER -p tcp -m conntrack --ctorigdstport <HTTPS_PORT> --ctdir ORIGINAL -j DROP
 COMMIT
 # END cointmu-telemetry

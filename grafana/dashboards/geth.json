@@ -1,0 +1,117 @@
+{
+  "uid": "geth-logs",
+  "title": "Geth node logs",
+  "tags": ["geth", "loki"],
+  "timezone": "browser",
+  "editable": false,
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "query": { "type": 1, "label": "host", "stream": "{job=\"geth\"}" },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "level",
+        "label": "Level",
+        "type": "custom",
+        "query": "fatal,crit,error,warn,info",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "search",
+        "label": "Contains (regex, case-insensitive)",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Fatal / CRIT / ERROR lines in range",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (host, role) (count_over_time({job=\"geth\", host=~\"$host\", level=~\"fatal|crit|error\"} [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "{{host}} {{role}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Log lines by level",
+      "gridPos": { "x": 8, "y": 0, "w": 16, "h": 6 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (count_over_time({job=\"geth\", host=~\"$host\", level=~\"$level\"} |~ \"(?i)$search\" [$__auto]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Lines",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 18 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"geth\", host=~\"$host\", level=~\"$level\"} |~ \"(?i)$search\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    }
+  ]
+}

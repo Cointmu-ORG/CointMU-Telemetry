@@ -4,4 +4,8 @@ certs/
 backup/
 *.key
 *.sql.gz
+# Per-host nginx files (allowlists, agent logins); only the examples are tracked.
+nginx/local/*
+!nginx/local/*.example
+# Location of the admin allowlist before nginx/local/ existed.
 nginx/admin-allow.conf

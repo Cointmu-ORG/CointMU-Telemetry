@@ -86,6 +86,71 @@ services:
       retries: 10
       start_period: 60s
 
+  # The image is distroless (no shell, no wget), so there is no in-container
+  # healthcheck; RUNBOOK.md checks /ready through the grafana container.
+  loki:
+    <<: [*hardening, *logging]
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    command: ["-config.file=/etc/loki/config.yml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-720h}
+      # Go GC works harder before mem_limit is hit instead of being OOM-killed.
+      GOMEMLIMIT: 600MiB
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [logs]
+    mem_limit: 768m
+    pids_limit: 200
+
+  # Served by the proxy at /grafana/ to the admin allowlist only.
+  grafana:
+    <<: [*hardening, *logging]
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    environment:
+      # Applied only when the database is first created; RUNBOOK.md rotates it.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
+      GF_SERVER_ROOT_URL: https://${GLITCHTIP_HOST}:${HTTPS_PORT:-443}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Login form only; no HTTP basic auth against the API.
+      GF_AUTH_BASIC_ENABLED: "false"
+      # No websockets through the proxy; dashboards refresh instead.
+      GF_LIVE_MAX_CONNECTIONS: "0"
+      # The "logs" network has no route out: no phoning home, no plugin downloads.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
+      - grafana-data:/var/lib/grafana
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [logs]
+    depends_on:
+      loki: { condition: service_started }
+    mem_limit: 512m
+    # Grafana runs some bundled data sources as plugin processes; at 100 it
+    # failed to create threads ("newosproc") on first start.
+    pids_limit: 300
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # First start runs all database migrations (about 2 minutes on a slow disk).
+      start_period: 180s
+
   proxy:
     <<: [*hardening, *logging]
     image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
@@ -93,18 +158,21 @@ services:
       - "${BIND_IP:?set in .env}:${HTTPS_PORT:-443}:8443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      # Per-host admin allowlist; refuse to start if it was not created.
+      # Per-host allowlists and agent logins (git-ignored). A folder, not single
+      # files, so edits show up after "nginx -s reload" whatever the editor does.
       - type: bind
-        source: ./nginx/admin-allow.conf
-        target: /etc/nginx/admin-allow.conf
+        source: ./nginx/local
+        target: /etc/nginx/local
         read_only: true
         bind: { create_host_path: false }
+      # Refuses to start while a file in nginx/local/ is missing.
+      - ./nginx/require-local.sh:/docker-entrypoint.d/05-require-local.sh:ro
       - ./certs:/etc/nginx/certs:ro
     # nginx (UID 101) reads certs/server.key through this dedicated host group.
     group_add: ["${TLS_GID:?set in .env}"]
     read_only: true
     tmpfs: [/tmp]
-    networks: [frontend]
+    networks: [frontend, logs]
     depends_on:
       web: { condition: service_healthy }
     mem_limit: 64m
@@ -120,7 +188,12 @@ networks:
   backend:
     internal: true
   frontend: {}
+  # Loki and Grafana: reachable only from the proxy, no route out, no Postgres.
+  logs:
+    internal: true
 
 volumes:
   pg-data:
   uploads:
+  loki-data:
+  grafana-data:

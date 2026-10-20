@@ -1,0 +1,9 @@
+# Copy to nginx/local/admin-allow.conf (git-ignored) and list the admins'
+# addresses, one "allow" per line. Everything not listed gets 403 on the
+# GlitchTip dashboard and API and on Grafana (/grafana/); event ingest and
+# /_health/ stay open to the campus LAN.
+# allow <ADMIN_SUBNET>;      e.g. allow 10.0.0.0/24;
+# allow <ADMIN_IP>;          e.g. allow 10.0.0.42;
+# Admins on the Tailscale VPN: their tailnet IP (100.64.0.0/10 is the whole
+# CGNAT range Tailscale assigns from; list single addresses, not the range).
+# allow <ADMIN_TAILNET_IP>;  e.g. allow 100.101.102.103;
