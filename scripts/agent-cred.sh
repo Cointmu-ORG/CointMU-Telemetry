@@ -67,7 +67,9 @@ case "$1" in
     echo "Put the password in /etc/alloy/push-password on the node; it is not stored here."
     ;;
   revoke)
-    [[ -f "$HTPASSWD" ]] && has_login "$name" || die "no login '$name' in $HTPASSWD"
+    if [[ ! -f "$HTPASSWD" ]] || ! has_login "$name"; then
+      die "no login '$name' in $HTPASSWD"
+    fi
     remaining=$(grep -v "^$name:" "$HTPASSWD" || true)
     # ">" truncates and rewrites, so owner, group and mode stay as they are.
     if [[ -n "$remaining" ]]; then

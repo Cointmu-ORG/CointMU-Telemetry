@@ -16,7 +16,8 @@ readonly PROBE_IMAGE="busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c
 readonly SAMPLE=testdata/cointmu-check-error.log
 readonly EXPECTED_LINES=10
 readonly WAIT_SECONDS=60
-readonly HOST_LABEL="redaction-check-$(date +%s)"
+HOST_LABEL="redaction-check-$(date +%s)"
+readonly HOST_LABEL
 readonly CONTAINER="alloy-redaction-check-$$"
 
 loki_id=$(cd ../.. && docker compose ps -q loki)
