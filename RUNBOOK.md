@@ -113,6 +113,58 @@ scripts/restore.sh backup/glitchtip-<UTC>.sql.gz   # type "restore" to confirm
 
 Stops web and proxy, recreates the database from the dump, starts them again.
 
+### Restore drill (quarterly)
+
+Proves that the off-VM copies decrypt and load, without touching the VM. Run it on a workstation that
+has Docker, this repository and the age key. The plaintext never touches the disk: both commands
+decrypt into a pipe.
+
+```bash
+rsync -a backup-host:/srv/cointmu-telemetry/offsite/ drill/
+# newest dump into a throwaway Postgres (no network, removed afterwards): tables + row counts
+scripts/restore-test.sh "$(ls drill/glitchtip-*.sql.gz.age | tail -1)" cointmu-backup.key
+# newest config bundle: must list .env, certs/ (server.key, server.crt) and nginx/local/
+age -d -i cointmu-backup.key "$(ls drill/config-*.tar.gz.age | tail -1)" | tar -tzf -
+rm -rf drill
+```
+
+Write down the date, the dump's name, the row counts and the load time it printed. The first drill
+also sets the RTO in README.md ("Backups"). If the drill fails, fixing the backups comes before
+anything else.
+
+### Rebuild on a new VM
+
+The age key stays on your workstation: you decrypt there and stream the plaintext over SSH.
+
+1. On the new VM: Docker Engine, `git clone` into `/opt/CointMU-Telemetry`, and the host group
+   (`sudo groupadd --system cointmu-tls`, README.md "Deploy" step 2). Don't create `.env` or keys;
+   they come from the bundle.
+2. From the workstation, unpack the newest config bundle into the repository folder:
+   ```bash
+   age -d -i cointmu-backup.key config-<UTC>.tar.gz.age \
+     | ssh <vm> 'cd /opt/CointMU-Telemetry && tar -xzf -'
+   ```
+   With the default umask (022), tar restores the original modes: `.env` 600, and `server.crt` and
+   the `*.conf` files readable by the proxy. Don't add a stricter umask here.
+3. On the VM, give the TLS key and agent logins to the new host group:
+   ```bash
+   TLS_GID=$(getent group cointmu-tls | cut -d: -f3) && sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
+   sudo chgrp "$TLS_GID" certs/server.key nginx/local/loki-agents.htpasswd
+   chmod 640 certs/server.key nginx/local/loki-agents.htpasswd
+   ```
+   If the VM's address changed: `BIND_IP` and `GLITCHTIP_HOST` in `.env`, then `scripts/gen-cert.sh
+   renew IP:<new>` (same key, same pin; "Certificate renewal" above). A new address also changes the
+   DSN, which needs an app release.
+4. Firewall (README.md), then `docker compose up -d`.
+5. From the workstation, put the newest dump on the VM, then restore it there:
+   ```bash
+   age -d -i cointmu-backup.key glitchtip-<UTC>.sql.gz.age \
+     | ssh <vm> 'cd /opt/CointMU-Telemetry && umask 077 && mkdir -p backup && cat > backup/glitchtip-<UTC>.sql.gz'
+   ssh -t <vm> 'cd /opt/CointMU-Telemetry && scripts/restore.sh backup/glitchtip-<UTC>.sql.gz'
+   ```
+6. Cron lines (README.md), `install -d -m 700 state`. If the certificate was renewed, copy the new
+   `certs/server.crt` to every node agent ("Server certificate changed").
+
 ## Disk full
 
 - `docker system df -v` and `du -sh backup/` to see what grew (`loki-data` is the log stack).
@@ -191,6 +243,28 @@ docker compose logs --no-log-prefix --since 5m proxy | grep -E '^[0-9a-f.:]+ '  
 
 Recreating the proxy discards its current log (it had no addresses anyway); the 30-day window
 starts from this point.
+
+## Moving to encrypted backups (deployments from before it)
+
+Until this is done, `backup.sh` keeps writing plaintext dumps and warns on stderr that the off-VM
+copy is disabled. The old cron line, which copies all of `backup/`, keeps working in the meantime.
+
+1. `sudo apt install age` on the VM.
+2. On a workstation, **not** the VM: `age-keygen -o cointmu-backup.key`. Keep that file offline
+   (password manager, safe); it is the only way to read the backups.
+3. **In one step**, so the old line never runs with the recipient set:
+   ```bash
+   install -d -m 700 state
+   nano .env      # BACKUP_AGE_RECIPIENT=<the printed public key>; add the line if it is missing
+   crontab -e     # replace the backup line with the one in README.md ("Backups")
+   ```
+4. Run the new cron line once by hand, then check:
+   ```bash
+   ls -l backup/offsite/ state/backup-offsite.ok
+   ```
+5. On backup-host, delete the old **plaintext** copies (everything in `/srv/cointmu-telemetry/`
+   except `offsite/`). The new line copies into `offsite/` only, so `--delete` never removes them.
+6. Run the restore drill ("Restore drill" above).
 
 ## Node logs (Loki + Grafana)
 

@@ -2,6 +2,8 @@
 .env
 certs/
 backup/
+# Per-host stamps (healthcheck state, off-VM backup stamp).
+state/
 *.key
 *.sql.gz
 # Per-host nginx files (allowlists, agent logins); only the examples are tracked.
