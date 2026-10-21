@@ -1,0 +1,112 @@
+# Alert rules on the geth node logs, sent to #node-logs (policies.yml).
+# Every query skips host="redaction-check-*", the test lines that
+# agents/alloy/check-redaction.sh pushes. Literal "$" in this file would be
+# read as an environment variable.
+#
+# Each rule is A (Loki, instant query) -> B (last value per series) -> C
+# (threshold on B, the condition). The message shows B as the count.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: node-logs
+    folder: Node logs
+    interval: 1m
+    rules:
+      # A host that logged in the last 24 hours but not in the last 15 minutes.
+      # geth at INFO logs every few seconds, so 15 minutes of silence means the
+      # node, geth or its agent stopped. A host that is shut down on purpose
+      # keeps firing until it drops out of the 24 hours: silence it
+      # (RUNBOOK.md). No data means no silent host (OK). On a query error the
+      # rule keeps its last state, so a Loki outage neither resolves nor raises
+      # it; "Loki unreachable or no logs" reports the outage instead.
+      - uid: geth-host-silent
+        title: Host silent
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        annotations:
+          count_meaning: lines in the last 24 h, none in the last 15 min
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: >-
+                sum by (host) (count_over_time({job="geth", host!~"redaction-check-.*"}[24h]))
+                unless
+                sum by (host) (count_over_time({job="geth", host!~"redaction-check-.*"}[15m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Any fatal or crit line from geth. Resolves once 5 minutes pass without
+      # one; keeps its last state while Loki does not answer.
+      - uid: geth-fatal-crit
+        title: Fatal or crit line
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        annotations:
+          count_meaning: fatal/crit lines in the last 5 min
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: >-
+                sum by (host) (count_over_time({job="geth", level=~"fatal|crit", host!~"redaction-check-.*"}[5m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Loki does not answer (query error) or no host sent anything for 15
+      # minutes. This is the one alert for a log stack outage; it also fires on
+      # a fresh deployment until the first agent ships logs. 5 minutes pending
+      # so a Loki restart or upgrade does not page.
+      - uid: loki-unreachable-or-empty
+        title: Loki unreachable or no logs
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          count_meaning: 'lines from all hosts in the last 15 min ("-": Loki did not answer or nothing arrived)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: >-
+                sum(count_over_time({job="geth", host!~"redaction-check-.*"}[15m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]

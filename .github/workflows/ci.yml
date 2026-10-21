@@ -137,9 +137,13 @@ jobs:
             tail -50 grafana.log
             exit 1
           fi
-          # Grafana logs an error for every optional provisioning folder that
-          # does not exist (plugins/); that one is not a provisioning failure.
-          if grep -iE 'failed to provision|provisioning.*(error|failed)|level=(error|crit)' grafana.log \
+          # Provisioning errors only: alert rules querying a Loki that is still
+          # starting log errors too, and those are expected here. Grafana also
+          # logs an error for every optional provisioning folder that does not
+          # exist (plugins/); that one is not a failure either. An invalid
+          # alerting file makes Grafana restart in a loop, so it also fails
+          # the health wait above.
+          if grep -E 'logger=provisioning[^ ]* .*level=(error|crit)|Failed to provision' grafana.log \
             | grep -v 'provisioning files from directory.*no such file or directory'; then
             exit 1
           fi
