@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # compose.yml and nginx/default.conf as a deployment would load them. The
+  # nginx image is read from compose.yml, so a Dependabot digest bump is
+  # exactly what gets tested.
+  config:
+    name: config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Dummy values only. Every DISCORD_WEBHOOK_* stays empty: CI never posts.
+      - name: Throwaway .env
+        run: |
+          sed -e 's/^TLS_GID=.*/TLS_GID=12345/' \
+            -e "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" \
+            -e "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)/" \
+            .env.example > .env
+          if grep -qE '^DISCORD_WEBHOOK_[A-Z_]+=.+' .env; then
+            echo "a DISCORD_WEBHOOK_* has a value in .env.example" >&2
+            exit 1
+          fi
+
+      - run: docker compose config -q
+
+      # nginx resolves the static "web" upstream when it loads the config;
+      # Loki and Grafana go through the resolver and need no host entry.
+      - name: nginx -t
+        run: |
+          image=$(sed -n 's|^ *image: \(nginxinc/nginx-unprivileged:.*\)$|\1|p' compose.yml)
+          test -n "$image"
+          mkdir ci-certs
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
+            -subj /CN=ci -keyout ci-certs/server.key -out ci-certs/server.crt 2>/dev/null
+          chmod 644 ci-certs/server.key
+          for example in nginx/local/*.example; do cp "$example" "${example%.example}"; done
+          : > nginx/local/loki-agents.htpasswd
+          docker run --rm --add-host web:127.0.0.1 \
+            -v "$PWD/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" \
+            -v "$PWD/nginx/local:/etc/nginx/local:ro" \
+            -v "$PWD/nginx/require-local.sh:/docker-entrypoint.d/05-require-local.sh:ro" \
+            -v "$PWD/ci-certs:/etc/nginx/certs:ro" \
+            "$image" nginx -t
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    env:
+      # Not tracked by Dependabot (no ecosystem for images in run steps); bump by hand.
+      SHELLCHECK_IMAGE: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: >
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
+          scripts/*.sh nginx/require-local.sh agents/alloy/check-redaction.sh
+
+  # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
+  alloy:
+    name: alloy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: alloy fmt
+        run: |
+          image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' agents/alloy/check-redaction.sh)
+          test -n "$image"
+          docker run --rm -v "$PWD/agents/alloy:/alloy:ro" --entrypoint /bin/alloy "$image" \
+            fmt --test /alloy/config.alloy
+
+  # The agent config against a real Loki, plus Grafana starting from its
+  # provisioning with no alert webhook set.
+  redaction:
+    name: redaction
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Dummy values only. Every DISCORD_WEBHOOK_* stays empty: CI never posts.
+      - name: Throwaway .env
+        run: |
+          sed -e 's/^TLS_GID=.*/TLS_GID=12345/' \
+            -e "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" \
+            -e "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)/" \
+            .env.example > .env
+          if grep -qE '^DISCORD_WEBHOOK_[A-Z_]+=.+' .env; then
+            echo "a DISCORD_WEBHOOK_* has a value in .env.example" >&2
+            exit 1
+          fi
+
+      - run: docker compose up -d loki grafana
+
+      # check-redaction.sh expects a Loki that already answers queries.
+      - name: Wait for Loki
+        run: |
+          probe=$(sed -n 's/^readonly PROBE_IMAGE="\(.*\)"$/\1/p' agents/alloy/check-redaction.sh)
+          test -n "$probe"
+          network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' \
+            "$(docker compose ps -q loki)")
+          for _ in $(seq 90); do
+            if docker run --rm --network "$network" "$probe" wget -qO- http://loki:3100/ready 2>/dev/null \
+              | grep -q '^ready'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs loki
+          exit 1
+
+      - run: agents/alloy/check-redaction.sh
+
+      # First start runs all of Grafana's migrations, hence the long wait.
+      - name: Grafana starts cleanly
+        run: |
+          for _ in $(seq 120); do
+            [ "$(docker compose ps grafana --format '{{.Health}}')" = healthy ] && break
+            sleep 3
+          done
+          docker compose logs grafana > grafana.log
+          if [ "$(docker compose ps grafana --format '{{.Health}}')" != healthy ]; then
+            tail -50 grafana.log
+            exit 1
+          fi
+          # Grafana logs an error for every optional provisioning folder that
+          # does not exist (plugins/); that one is not a provisioning failure.
+          if grep -iE 'failed to provision|provisioning.*(error|failed)|level=(error|crit)' grafana.log \
+            | grep -v 'provisioning files from directory.*no such file or directory'; then
+            exit 1
+          fi
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
