@@ -8,7 +8,8 @@ x-hardening: &hardening
   security_opt: ["no-new-privileges:true"]
   cap_drop: [ALL]
 
-# Rotated per container so logs cannot fill the disk (3 x 10 MB each).
+# Rotated per container so logs cannot fill the disk (3 x 10 MB each; the
+# proxy keeps more, see there).
 x-logging: &logging
   logging:
     driver: json-file
@@ -153,6 +154,16 @@ services:
 
   proxy:
     <<: [*hardening, *logging]
+    # Its access log is the admin audit trail (README.md, "IP addresses"), so it
+    # is kept much longer: 30 x 100 MB is at least 30 days at the worst-case
+    # push volume (5 agents, one push a second). Rotated files are gzipped
+    # (about a tenth on disk); docker compose logs still reads them.
+    logging:
+      driver: json-file
+      options:
+        max-size: 100m
+        max-file: "30"
+        compress: "true"
     image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
     ports:
       - "${BIND_IP:?set in .env}:${HTTPS_PORT:-443}:8443"
