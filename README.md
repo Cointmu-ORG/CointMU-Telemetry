@@ -52,14 +52,15 @@ in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook 
 | Piece | Choice |
 |---|---|
 | Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, and a clean Grafana start |
-| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki and Grafana on another one. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) only to `nginx/local/agent-allow.conf` plus a per-agent login. The rest of Loki's API is not proxied |
+| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) only to `nginx/local/agent-allow.conf` plus a per-agent login. The rest of Loki's API is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
 | IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`. Its access log has no client IP or query string for event ingest, `/_health/`, successful log pushes and every 403. The exception is an audit trail: requests that pass the admin allowlist (GlitchTip dashboard and API, `/grafana/`) are logged with the client address, and failed log pushes (401/413/429/5xx) with the address and the agent login. Admin logins happen inside GlitchTip and Grafana, so nginx records addresses, not user names. The audit lines are kept at least 30 days ("Logs"). nginx's error log is limited to critical errors (rare TLS failures, which include the client address), except on the log push, where errors name the agent's address. IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
-| Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one admin (password from `.env`), sign-up, anonymous access and API basic auth off, no outbound calls |
+| Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
+| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM ("Alerts" below) |
 | Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
@@ -109,7 +110,8 @@ scripts/init-project.sh admin@example.com
 pin without `certs/server.key`. `scripts/backup-config.sh` copies them off the VM, encrypted
 ("Backups" below). Until that is set up, keep a copy somewhere safe and private.
 
-Grafana is at `https://<GLITCHTIP_HOST>/grafana/` (user `admin`, `GRAFANA_ADMIN_PASSWORD`), with the
+Grafana is at `https://<GLITCHTIP_HOST>/grafana/`. Log in once as `admin` (`GRAFANA_ADMIN_PASSWORD`) to
+create one login per admin (RUNBOOK.md, "Grafana users"), then use your own. It has the
 "Geth node logs" dashboard. To ship a node's logs, follow [agents/alloy/README.md](agents/alloy/README.md).
 
 ## Connect the app
@@ -201,9 +203,101 @@ Restore with `scripts/restore.sh backup/<file>.sql.gz` (asks for confirmation, r
 data). `scripts/restore-test.sh` checks a dump in a throwaway database instead; RUNBOOK.md has the
 quarterly restore drill.
 
+## Alerts (Discord)
+
+All alerts go to one Discord server, one channel per source:
+
+| Channel | Source | `.env` variable | Applied by |
+|---|---|---|---|
+| #app-errors | GlitchTip: each new issue of the desktop project, once | `DISCORD_WEBHOOK_APP_ERRORS` | `scripts/init-project.sh <email>` (re-run after a change) |
+| #node-logs | Grafana alert rules on the geth node logs | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
+| #infra | `scripts/healthcheck.sh` from cron: VM health, independent of Grafana and Loki | `DISCORD_WEBHOOK_INFRA` | read on every run |
+
+**Setup.** One webhook per channel: in Discord, Edit Channel → Integrations → Webhooks → New
+Webhook → Copy Webhook URL, then put it in `.env` under that channel's variable.
+- The URLs are **secrets**: anyone who has one can post to that channel. They live only in `.env`
+  (mode 600, copied off the VM encrypted by `backup-config.sh`).
+- An empty variable turns that source off, and nothing else fails.
+- Server and channel IDs never go in this repository; a webhook URL is all a sender needs.
+
+**What a message contains.**
+- **#app-errors:** GlitchTip's own Discord message. It carries the issue title, a link to the issue
+  on the LAN dashboard, and the fields Project, Release and Environment.
+  - The title is the error type plus the first line of the error message (at most 100 characters),
+    after the app's sanitizer and GlitchTip's scrubber.
+  - GlitchTip 6.2.6 never fills the issue's culprit, so no code location is sent.
+  - **The Discord server must stay admin-only:** the title is free text from an error message. If
+    anyone else joins, empty `DISCORD_WEBHOOK_APP_ERRORS` and re-run
+    `scripts/init-project.sh <email>` to turn this source off.
+- **#node-logs:** the rule, the host, a count and the dashboard link for that host.
+  - Rules:
+    - **Host silent:** logged in the last 24 h but not in the last 15 min.
+    - **Fatal or crit line.**
+    - **Loki unreachable or no logs:** Loki query error, or nothing from any host for 15 min; pending
+      for 5 min first. It also fires on a fresh deployment until the first agent ships logs.
+  - A firing alert repeats at most every 12 h, and its resolution is posted once.
+- **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
+  - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
+    no successful off-VM backup copy in 26 h; certificate valid for less than 60 days.
+  - Posted once when a check fails and once when it recovers.
+- **Never** log lines, event payloads, stack traces, or client or peer addresses. The only address is
+  the VM's own campus address in the dashboard links.
+- **No message can ping anyone.** GlitchTip's message text is fixed, and Discord takes mentions only
+  from that text, not from embeds. Grafana puts its message into the embed.
+  `healthcheck.sh` sends `allowed_mentions: none` and strips `@`, `<` and `>`.
+
+Schedule the health check. It runs as the admin user, who must be in the `docker` group;
+`journalctl -t cointmu-healthcheck` shows its output:
+
+```cron
+*/5 * * * * cd /opt/CointMU-Telemetry && scripts/healthcheck.sh 2>&1 | logger -t cointmu-healthcheck
+```
+
+**Network.** The VM needs outbound HTTPS (TCP 443) to `discord.com`, and only there: ask the campus
+network team to allow it through their firewall or proxy.
+- Senders: GlitchTip (from its container), Grafana (from its container, over the `alerts-egress`
+  network) and `healthcheck.sh` (from the host).
+- An HTTP proxy is not configured here; the VM needs a direct route.
+- Docker cannot restrict the containers to `discord.com`; the VM's own firewall decides what else is
+  reachable.
+
+**Test each channel** on the VM, from the repository folder:
+
+```bash
+# 1. Webhook and VM egress: a test message to each configured channel (expect 204).
+#    The URL goes to curl through a config file descriptor, never on the command line.
+for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA; do
+  url=$(sed -n "s/^$var=//p" .env); [ -n "$url" ] || continue
+  printf '{"content":"test: %s on %s","allowed_mentions":{"parse":[]}}' "$var" "$(hostname -s)" \
+    | curl -sS -o /dev/null -w "$var: %{http_code}\n" -H 'Content-Type: application/json' \
+        --data-binary @- -K <(printf 'url = "%s"\n' "$url")
+done
+
+# 2. #app-errors through GlitchTip's own Discord code (posts the newest issue; expect 204)
+DISCORD_WEBHOOK_APP_ERRORS=$(sed -n 's/^DISCORD_WEBHOOK_APP_ERRORS=//p' .env) \
+docker compose exec -T -e DISCORD_WEBHOOK_APP_ERRORS web ./manage.py shell -c '
+import asyncio, os
+from apps.alerts.webhooks import send_test_notification
+from apps.projects.models import Project
+r = asyncio.run(send_test_notification(os.environ["DISCORD_WEBHOOK_APP_ERRORS"], "discord",
+                                       Project.objects.get(slug="desktop")))
+print("Discord answered", r.status if r else "nothing (blocked or unreachable)")'
+
+# 3. #infra through healthcheck.sh: it posts on changes only, so force one and undo it
+DISK_MAX_PERCENT=1 scripts/healthcheck.sh; scripts/healthcheck.sh   # "FAIL disk", then "OK disk"
+```
+
+For #node-logs, open Grafana → Alerting → Contact points → `discord-node-logs` → Test (as an org
+Admin).
+
+**Blind spot.** All three senders run on this VM. If the whole VM is down or loses its network,
+nothing alerts. This is accepted for now. A possible later addition is an external heartbeat, e.g. a
+cron job on a node server that checks `https://<VM>/_health/` and posts to #infra when it fails; it
+is not set up.
+
 ## Operations
 
 See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal,
 restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades, "reports are not arriving" (including rate limits behind NAT), the
-admin access audit, and for the log stack: adding a
-node agent, rotating agent logins, retention, Grafana's admin password, and "logs are not arriving".
+admin access audit, what each alert means, and for the log stack: adding a
+node agent, rotating agent logins, retention, Grafana users and the break-glass admin, and "logs are not arriving".
