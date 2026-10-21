@@ -297,7 +297,9 @@ is not set up.
 
 ## Operations
 
-See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal,
-restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades, "reports are not arriving" (including rate limits behind NAT), the
-admin access audit, what each alert means, and for the log stack: adding a
-node agent, rotating agent logins, retention, Grafana users and the break-glass admin, and "logs are not arriving".
+See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal and its
+2-year schedule, rotating secrets (database password, `SECRET_KEY`, Discord webhooks), host
+patching, restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades,
+"reports are not arriving" (including rate limits behind NAT), the admin access audit, what each
+alert means, and for the log stack: adding a node agent, rotating agent logins, retention, Grafana
+users and the break-glass admin, and "logs are not arriving".
