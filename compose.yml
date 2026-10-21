@@ -125,19 +125,27 @@ services:
       GF_AUTH_BASIC_ENABLED: "false"
       # No websockets through the proxy; dashboards refresh instead.
       GF_LIVE_MAX_CONNECTIONS: "0"
-      # The "logs" network has no route out: no phoning home, no plugin downloads.
+      # Its only route out is alerts-egress, for the Discord webhook: no phoning
+      # home, no plugin downloads.
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # One login per admin (RUNBOOK.md, "Grafana users"); new users can only
+      # read dashboards until an admin gives them more.
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      # #node-logs webhook for grafana/provisioning/alerting/contact-points.yml.
+      # Grafana refuses an empty Discord URL, so "off" (empty in .env) becomes
+      # an address on the reserved .invalid domain that can never resolve.
+      DISCORD_WEBHOOK_NODE_LOGS: ${DISCORD_WEBHOOK_NODE_LOGS:-https://discord.invalid/webhook-not-configured}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
       - grafana-data:/var/lib/grafana
     read_only: true
     tmpfs: [/tmp]
-    networks: [logs]
+    networks: [logs, alerts-egress]
     depends_on:
       loki: { condition: service_started }
     mem_limit: 512m
@@ -202,6 +210,10 @@ networks:
   # Loki and Grafana: reachable only from the proxy, no route out, no Postgres.
   logs:
     internal: true
+  # Grafana's route out, for the Discord webhook only; Loki is not on it.
+  # Docker cannot limit it to discord.com: the VM firewall decides
+  # (README.md, "Alerts").
+  alerts-egress: {}
 
 volumes:
   pg-data:

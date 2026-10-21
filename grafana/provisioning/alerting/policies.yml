@@ -1,0 +1,10 @@
+# Everything goes to #node-logs, one message per rule and host. A firing alert
+# is repeated at most every 12 hours; resolving it sends one message.
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: discord-node-logs
+    group_by: [alertname, host]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h

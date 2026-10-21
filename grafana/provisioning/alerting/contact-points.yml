@@ -1,0 +1,24 @@
+# Grafana's built-in Discord integration, posting to #node-logs. The webhook
+# URL comes from .env through compose.yml; there it falls back to a
+# placeholder on the reserved .invalid domain, because Grafana refuses a
+# Discord contact point without a URL and would not start. With the
+# placeholder the rules still run and show in Grafana, and sending fails
+# without leaving the host.
+#
+# use_embed_description puts the message in the embed: Discord only turns
+# @everyone/@here and <@id> into pings from the top-level content, which stays
+# empty. Literal "$" in this file would be read as an environment variable.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: discord-node-logs
+    receivers:
+      - uid: discord-node-logs
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: $DISCORD_WEBHOOK_NODE_LOGS
+          use_discord_username: false
+          use_embed_description: true
+          title: '{{ template "cointmu.title" . }}'
+          message: '{{ template "cointmu.message" . }}'

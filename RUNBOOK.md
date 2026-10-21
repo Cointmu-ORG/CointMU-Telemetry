@@ -105,6 +105,45 @@ docker compose logs --no-log-prefix --timestamps proxy | head -1
 If it reaches back less than 30 days, real traffic is heavier than the worst case it was sized for:
 raise `max-file` of the proxy in `compose.yml`, then `docker compose up -d proxy`.
 
+## Alerts (Discord)
+
+What each message means and where to start. README.md ("Alerts") has the setup and the tests.
+
+**#infra** (`scripts/healthcheck.sh`, every 5 minutes; one message on failure, one on recovery):
+
+| Check | First steps |
+|---|---|
+| disk | "Disk full" below |
+| services | `docker compose ps`, then `docker compose logs --tail=100 <service>`. For Loki: "Is Loki up?" |
+| backup | `tail backup/backup.log`; run the backup cron line by hand. "off-VM copy not configured" on a VM that hasn't migrated: "Moving to encrypted backups" |
+| cert | "Certificate renewal" below; then copy `server.crt` to the node agents |
+
+`scripts/healthcheck.sh` prints every failing check; `journalctl -t cointmu-healthcheck` shows what
+cron saw. Its state is in `state/healthcheck/` (one file per failing check that was posted).
+
+**#node-logs** (Grafana; repeats at most every 12 h; one message when resolved):
+
+| Rule | First steps |
+|---|---|
+| Host silent | Is the node up, is geth running, is Alloy running? "Logs are not arriving". If the node is down on purpose: "Silence a node that is down on purpose" |
+| Fatal or crit line | Open the dashboard link (level fatal/crit) and read the full line in the node's own log file over SSH |
+| Loki unreachable or no logs | "Is Loki up?". On a fresh deployment it fires until the first agent ships logs. While Loki does not answer, the other two rules keep their last state: no false "resolved" |
+
+**#app-errors** (GlitchTip, each new issue once): open the issue link from the campus LAN.
+
+### Silence a node that is down on purpose
+
+"Host silent" looks back 24 hours, so a node that is shut down on purpose keeps it firing (repeated
+every 12 h) until its last line is a day old. Silence that host only. As an org Editor or Admin:
+Grafana → Alerting → Silences → New silence, with matchers `alertname = Host silent` and
+`host = <name>` and a comment saying why.
+
+- **Maintenance:** set the duration to the window, and expire the silence as soon as the node ships
+  logs again.
+- **Node retired:** about 25 hours. After that the host has dropped out of the 24-hour window and the
+  rule stops on its own. Let the silence expire; never leave a permanent one.
+- **Never silence by `alertname` alone:** that hides every host.
+
 ## Restore from backup
 
 ```bash
@@ -266,6 +305,20 @@ copy is disabled. The old cron line, which copies all of `backup/`, keeps workin
    except `offsite/`). The new line copies into `offsite/` only, so `--delete` never removes them.
 6. Run the restore drill ("Restore drill" above).
 
+## Moving to Discord alerting (deployments from before it)
+
+1. In Discord, create one webhook each in #app-errors, #node-logs and #infra (README.md, "Alerts").
+2. Add `DISCORD_WEBHOOK_APP_ERRORS`, `DISCORD_WEBHOOK_NODE_LOGS` and `DISCORD_WEBHOOK_INFRA` to
+   `.env` (see `.env.example`). Leave one empty to keep that source off.
+3. Check outbound HTTPS to discord.com: test 1 in README.md ("Alerts"). Without it nothing arrives.
+4. `docker compose up -d`. This creates the `alerts-egress` network and recreates Grafana with its
+   alert rules.
+5. `scripts/init-project.sh <owner email>`. It prints the same `DSN=` line as before and turns on
+   the GlitchTip alert.
+6. Add the health check cron line (README.md, "Alerts"). Its backup check needs the stamp from
+   "Moving to encrypted backups"; until that is done it reports "off-VM copy not configured".
+7. Create the per-admin Grafana users ("Grafana users") and stop using `admin` day to day.
+
 ## Node logs (Loki + Grafana)
 
 ### Is Loki up?
@@ -308,7 +361,33 @@ Until then their pushes fail TLS verification; that is retried, so the lines wai
 `LOKI_RETENTION_PERIOD` in `.env` (default `720h`, 30 days), then `docker compose up -d loki`.
 The compactor applies it within about 10 minutes plus `retention_delete_delay` (2 h).
 
-### Grafana admin password
+### Grafana users
+
+Every admin has their own Grafana login. `admin` is break-glass only. New users are Viewers
+(`GF_USERS_AUTO_ASSIGN_ORG_ROLE`). Sign-up is off, and the API takes no basic auth. Roles:
+
+- **1–2 named admins:** Grafana Admin (server administrator) and org role Admin. They manage users
+  and silences.
+- **Everyone else:** Viewer (dashboards and Explore). Alert rules and the contact point are
+  provisioned from this repository, so nobody needs to edit them in the UI.
+
+Add an admin, logged in as a Grafana Admin:
+1. Administration → Users and access → Users → New user: name, e-mail, username and a temporary
+   password. Send the password over a private channel; they change it under Profile → Change
+   password.
+2. For a named admin only: on the user's page, set the organization role to Admin and turn on Grafana
+   Admin.
+
+Remove one: Administration → Users and access → Users → the user → Delete user. Do it on the day
+they leave the admin group, and remove their address from `nginx/local/admin-allow.conf` too.
+
+### Break-glass admin
+
+Log in as `admin` only when no named Grafana Admin can, for example when all of them are locked out
+or have left, and only to restore a named admin. Afterwards rotate its password (below) and note
+who used it and why.
+
+### Break-glass admin password
 
 `GRAFANA_ADMIN_PASSWORD` is used only when Grafana's database is first created. To change it later:
 
