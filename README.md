@@ -72,6 +72,7 @@ git clone https://github.com/Cointmu-ORG/CointMU-Telemetry.git && cd CointMU-Tel
 
 # 1. Configuration
 cp .env.example .env && chmod 600 .env
+install -d -m 700 state      # per-host stamps (git-ignored), e.g. the off-VM backup stamp
 # set BIND_IP and GLITCHTIP_HOST to the VM's campus IP, then:
 sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
 sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
@@ -104,8 +105,9 @@ docker compose exec web ./manage.py createsuperuser
 scripts/init-project.sh admin@example.com
 ```
 
-Back up `.env`, `nginx/local/` and `certs/` somewhere safe and private. They are git-ignored and the
-server cannot be rebuilt with the same pin without `certs/server.key`.
+`.env`, `nginx/local/` and `certs/` are git-ignored, and the server cannot be rebuilt with the same
+pin without `certs/server.key`. `scripts/backup-config.sh` copies them off the VM, encrypted
+("Backups" below). Until that is set up, keep a copy somewhere safe and private.
 
 Grafana is at `https://<GLITCHTIP_HOST>/grafana/` (user `admin`, `GRAFANA_ADMIN_PASSWORD`), with the
 "Geth node logs" dashboard. To ship a node's logs, follow [agents/alloy/README.md](agents/alloy/README.md).
@@ -165,19 +167,43 @@ request would look like the same internal address.
 
 ## Backups
 
-`scripts/backup.sh` writes `backup/glitchtip-<UTC>.sql.gz` and keeps every dump from the
-last 7 days plus Sunday dumps for 28 days. Schedule it and copy the folder off the VM:
+| | |
+|---|---|
+| Database | `scripts/backup.sh`, daily: `backup/glitchtip-<UTC>.sql.gz`, checked with `gzip -t` before it gets its final name. It stays on the VM (mode 600, folder 700), and an age-encrypted copy goes to `backup/offsite/` |
+| Configuration | `scripts/backup-config.sh`: `.env`, `certs/` and `nginx/local/` as one encrypted bundle in `backup/offsite/`, newest 8 kept. Together they hold every secret of the deployment, including the TLS key behind the app's pin |
+| Off the VM | Only `backup/offsite/`. Everything there is encrypted to `BACKUP_AGE_RECIPIENT` (a public key in `.env`); the private key is kept offline, never on the VM |
+| Retention | Every dump from the last 7 days plus Sunday dumps for 28 days, on the VM and in `offsite/` |
+| RPO | 24 hours (one dump a day) |
+| RTO | About 1 hour to rebuild on a new VM from the newest bundle and dump (RUNBOOK.md, "Rebuild on a new VM"). The first restore drill measures it; replace this estimate with the measured time |
 
-```cron
-15 2 * * * cd /opt/CointMU-Telemetry && scripts/backup.sh >> backup/backup.log 2>&1 && rsync -a --delete backup/ backup-host:/srv/cointmu-telemetry/
+Set up once:
+
+```bash
+sudo apt install age
+# on a workstation, NOT on the VM; keep the key file offline (password manager, safe):
+age-keygen -o cointmu-backup.key        # prints "Public key: age1..."
+# on the VM, in .env:
+BACKUP_AGE_RECIPIENT=age1...
 ```
 
-Restore with `scripts/restore.sh backup/<file>.sql.gz` (asks for confirmation, replaces
-all current data). Test a restore after setting this up.
+Schedule it and copy only `backup/offsite/` off the VM. The stamp `state/backup-offsite.ok` is
+touched only when every step, the copy included, has succeeded:
+
+```cron
+15 2 * * * cd /opt/CointMU-Telemetry && scripts/backup.sh >> backup/backup.log 2>&1 && scripts/backup-config.sh >> backup/backup.log 2>&1 && rsync -a --delete backup/offsite/ backup-host:/srv/cointmu-telemetry/offsite/ && touch state/backup-offsite.ok
+```
+
+Without `BACKUP_AGE_RECIPIENT`, `backup.sh` writes the plaintext dump only and warns on stderr, so a
+VM that still runs the old cron line (which copied all of `backup/`) keeps working until it migrates
+(RUNBOOK.md, "Moving to encrypted backups").
+
+Restore with `scripts/restore.sh backup/<file>.sql.gz` (asks for confirmation, replaces all current
+data). `scripts/restore-test.sh` checks a dump in a throwaway database instead; RUNBOOK.md has the
+quarterly restore drill.
 
 ## Operations
 
 See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal,
-restore, disk full, upgrades, "reports are not arriving" (including rate limits behind NAT), the
+restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades, "reports are not arriving" (including rate limits behind NAT), the
 admin access audit, and for the log stack: adding a
 node agent, rotating agent logins, retention, Grafana's admin password, and "logs are not arriving".

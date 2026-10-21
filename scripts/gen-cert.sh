@@ -7,6 +7,7 @@
 #   scripts/gen-cert.sh renew <san>    new certificate, same key (pin unchanged)
 #   scripts/gen-cert.sh next           pre-generate the next key, print its pin
 #   scripts/gen-cert.sh promote <san>  switch to the next key (old key kept as .old)
+#   scripts/gen-cert.sh status         expiry, current pin, key age, next key (key=value)
 #
 # <san> is the subjectAltName, e.g. IP:10.0.0.10 or DNS:telemetry.lan
 #
@@ -20,7 +21,12 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 readonly ROOT_DIR
 readonly CERT_DIR="$ROOT_DIR/certs"
 readonly ENV_FILE="$ROOT_DIR/.env"
-readonly VALID_DAYS=3650
+# About two years: every renew means copying server.crt to all node agents,
+# and expiry only matters to them (the app pins the key and ignores expiry).
+# This makes the renewal, and a key rotation in the same window, a routine
+# that RUNBOOK.md schedules; healthcheck.sh warns 60 days ahead.
+readonly VALID_DAYS=825
+readonly SECONDS_PER_DAY=86400
 readonly KEY="$CERT_DIR/server.key"
 readonly CERT="$CERT_DIR/server.crt"
 readonly NEXT_KEY="$CERT_DIR/next.key"
@@ -29,7 +35,7 @@ readonly OLD_KEY="$KEY.old"
 # unrelated system group (syslog on Ubuntu), so it must never own the key.
 readonly NGINX_IMAGE_GID=101
 
-usage() { sed -n '2,16p' "$0" >&2; exit 2; }
+usage() { sed -n '2,17p' "$0" >&2; exit 2; }
 die() { echo "$*" >&2; exit 1; }
 
 # TLS_GID from the environment or .env, checked against the host's groups.
@@ -70,6 +76,29 @@ pin_of_key() {
   openssl pkey -in "$1" -pubout -outform der | openssl dgst -sha256 -binary | base64
 }
 
+pin_of_cert() {
+  openssl x509 -in "$1" -pubkey -noout \
+    | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64
+}
+
+# key=value lines, read by healthcheck.sh. Needs no sudo and no TLS_GID.
+print_status() {
+  [[ -e "$CERT" && -e "$KEY" ]] || die "no $CERT or $KEY; run 'new' first"
+  local now expires
+  now=$(date +%s)
+  expires=$(date -d "$(openssl x509 -in "$CERT" -noout -enddate | cut -d= -f2)" +%s)
+  echo "expires=$(date -u -d "@$expires" +%Y-%m-%d)"
+  echo "days_left=$(( (expires - now) / SECONDS_PER_DAY ))"
+  echo "pin=$(pin_of_cert "$CERT")"
+  echo "key_age_days=$(( (now - $(stat -c %Y "$KEY")) / SECONDS_PER_DAY ))"
+  if [[ -e "$NEXT_KEY" ]]; then
+    echo "next_key=yes"
+    echo "next_pin=$(pin_of_key "$NEXT_KEY")"
+  else
+    echo "next_key=no"
+  fi
+}
+
 mkdir -p "$CERT_DIR"
 case "${1:-}" in
   new)
@@ -102,6 +131,10 @@ case "${1:-}" in
     issue_cert "$2"
     echo "pin (current, was next): $(pin_of_key "$KEY")"
     echo "restart the proxy: docker compose restart proxy"
+    ;;
+  status)
+    [[ $# -eq 1 ]] || usage
+    print_status
     ;;
   *) usage ;;
 esac
