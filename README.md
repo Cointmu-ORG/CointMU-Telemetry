@@ -56,11 +56,11 @@ in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook 
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
-| IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`, its access log has no client IP or query string, and IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
+| IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`. Its access log has no client IP or query string for event ingest, `/_health/`, successful log pushes and every 403. The exception is an audit trail: requests that pass the admin allowlist (GlitchTip dashboard and API, `/grafana/`) are logged with the client address, and failed log pushes (401/413/429/5xx) with the address and the agent login. Admin logins happen inside GlitchTip and Grafana, so nginx records addresses, not user names. The audit lines are kept at least 30 days ("Logs"). nginx's error log is limited to critical errors (rare TLS failures, which include the client address), except on the log push, where errors name the agent's address. IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one admin (password from `.env`), sign-up, anonymous access and API basic auth off, no outbound calls |
-| Logs | `json-file` driver rotated at 10 MB × 3 files per container |
+| Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
 ## Deploy
@@ -178,5 +178,6 @@ all current data). Test a restore after setting this up.
 ## Operations
 
 See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate renewal,
-restore, disk full, upgrades, "reports are not arriving", and for the log stack: adding a
+restore, disk full, upgrades, "reports are not arriving" (including rate limits behind NAT), the
+admin access audit, and for the log stack: adding a
 node agent, rotating agent logins, retention, Grafana's admin password, and "logs are not arriving".

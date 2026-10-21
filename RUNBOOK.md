@@ -55,8 +55,55 @@ app release.
 3. Pin: `scripts/print-pin.sh <server>:<HTTPS_PORT>` must be in the app's `TELEMETRY_PINS`.
 4. nginx log (`docker compose logs proxy`): `POST /api/<id>/envelope/` lines with 200?
    429 means rate limited, 413 too large.
-5. On the laptop: Settings → Privacy & Diagnostics shows reporting on and the queue.
+
+   **Many laptops behind one address.** The limit (5 req/s, burst 20) is per client address.
+   Laptops behind one NAT/SNAT address share it: a lab router, a Tailscale subnet router, a campus
+   NAT. A busy lab then gets 429s even though no single laptop misbehaves. The app keeps rejected
+   reports queued and retries them, so they arrive late, not lost.
+
+   The ingest log has no client address, so confirm it from the pattern instead. Look for 429s that
+   cluster in a few minutes (a lab session) while the other minutes get 200:
+   ```bash
+   # per minute: ingest requests, of which 429
+   docker compose logs --no-log-prefix --since 2h proxy \
+     | grep -E '"POST /api/[0-9]+/(envelope|store)/"' \
+     | awk '{m = substr($1, 2, 17); n[m]++; if ($5 == 429) r[m]++}
+            END {for (m in n) print m, n[m], r[m] + 0}' | sort
+   ```
+5. Still unclear why requests fail (502/504, TLS errors)? nginx's error log is limited to
+   critical errors, because its lines name the client. Raise it for **one short debugging session
+   only**. `nginx/default.conf` is a single-file mount, so an edit needs a restart, not a reload
+   (a few seconds without ingest; the apps retry):
+   ```bash
+   sed -i 's|^  error_log /dev/stderr crit;|  error_log /dev/stderr error;|' nginx/default.conf
+   docker compose restart proxy
+   # reproduce the problem, then:
+   docker compose logs --since 10m proxy | grep -F '[error]'
+   git checkout -- nginx/default.conf && docker compose restart proxy   # back to crit
+   ```
+   While it is raised, **client addresses are logged, students' laptops included**, and they stay in
+   the proxy log until it rotates (README.md, "Logs"). Keep it short and revert in the same session.
+6. On the laptop: Settings → Privacy & Diagnostics shows reporting on and the queue.
    Reports are held until the first-run notice is dismissed.
+
+## Admin access audit
+
+Requests that pass the admin allowlist (GlitchTip dashboard and API, `/grafana/`) and failed log
+pushes are logged with the client address. A push also carries the agent login. 403s and
+everything else carry no address (README.md, "IP addresses").
+
+```bash
+# who reached the admin paths, newest last (audit lines start with an address)
+docker compose logs --no-log-prefix proxy | grep -E '^[0-9a-f.:]+ ' | grep -v '/loki/api/v1/push'
+# failed pushes per agent login and status
+docker compose logs --no-log-prefix proxy | grep -E '^[0-9a-f.:]+ .*"POST /loki/api/v1/push"' \
+  | awk '{print $2, $(NF-2)}' | sort | uniq -c
+# how far back the proxy log reaches (README.md states at least 30 days)
+docker compose logs --no-log-prefix --timestamps proxy | head -1
+```
+
+If it reaches back less than 30 days, real traffic is heavier than the worst case it was sized for:
+raise `max-file` of the proxy in `compose.yml`, then `docker compose up -d proxy`.
 
 ## Restore from backup
 
@@ -128,6 +175,22 @@ sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/loki-agents.h
 # .env: add GRAFANA_ADMIN_PASSWORD (openssl rand -base64 24) and LOKI_RETENTION_PERIOD=720h
 docker compose up -d
 ```
+
+## Moving to the admin access audit log (deployments from before it)
+
+The proxy now logs allowed admin requests and failed log pushes with the client address, limits
+nginx's error log to critical errors, and keeps its log longer (README.md, "IP addresses" and
+"Logs"). The logging options only apply to a recreated container:
+
+```bash
+git pull
+docker compose up -d proxy        # recreates the proxy (a few seconds without ingest)
+# from an admin machine, open the dashboard, then:
+docker compose logs --no-log-prefix --since 5m proxy | grep -E '^[0-9a-f.:]+ '   # your address
+```
+
+Recreating the proxy discards its current log (it had no addresses anyway); the 30-day window
+starts from this point.
 
 ## Node logs (Loki + Grafana)
 
