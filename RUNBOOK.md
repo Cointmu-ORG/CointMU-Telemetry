@@ -41,12 +41,40 @@ docker compose restart proxy
 ```
 
 No app release needed, but the node agents trust the certificate itself, not the key: copy
-the new `certs/server.crt` to every agent ("Server certificate changed" below).
+the new `certs/server.crt` to every agent ("Server certificate changed" below). The new
+certificate is valid for 825 days; "Scheduled renewal and key rotation" plans the next one.
 `renew` also resets the key permissions (`server.key` 640 with
 group `TLS_GID`, everything else 600), so run it once on a server whose key was made by
 an older `gen-cert.sh` (mode 644 or group 101). Also use this when the server IP changes, together with
 `BIND_IP`/`GLITCHTIP_HOST` in `.env`. A new IP also changes the DSN, which does need an
 app release.
+
+## Scheduled renewal and key rotation (about every 2 years)
+
+`gen-cert.sh` issues certificates valid for 825 days (`VALID_DAYS`). The app pins the key and
+accepts an expired certificate. The node agents check the certificate: once it has expired they
+reject every push, keep retrying, and buffer in their WAL for up to 24 hours. So the renewal is a
+routine, and the key rotation is done in the same window.
+
+- **Existing certificates keep their current expiry until the next `renew` or `promote`.** One made
+  with the old 3650-day setting stays valid that long; the new value only applies to certificates
+  issued from then on.
+- **When:** `scripts/healthcheck.sh` posts "cert" to #infra 60 days before expiry. Put the date in
+  the team calendar as well. Starting about 3 months ahead leaves time for the app release in step 2.
+
+```bash
+scripts/gen-cert.sh status     # expires, days_left, pin, key_age_days, next_key
+```
+
+1. Rotate the key with the steps in "Key rotation" above, unchanged: `next` → app release with both
+   pins → wait → `promote`. `promote` issues a fresh 825-day certificate for the new key, so it is the
+   renewal too.
+2. If the app release can't happen before the certificate expires, run "Certificate renewal" (same
+   key, no app impact) first, and rotate the key in the next window.
+3. Either way, copy the new `certs/server.crt` to every node agent ("Server certificate changed")
+   and check that each host shows new lines in Grafana.
+4. `scripts/gen-cert.sh status` again: `days_left` about 825, and after a promote a new `pin` and
+   `next_key=no`.
 
 ## Reports are not arriving
 
@@ -105,6 +133,80 @@ docker compose logs --no-log-prefix --timestamps proxy | head -1
 If it reaches back less than 30 days, real traffic is heavier than the worst case it was sized for:
 raise `max-file` of the proxy in `compose.yml`, then `docker compose up -d proxy`.
 
+## Rotate secrets
+
+Each secret below also has an "if leaked" variant. The config bundles from `backup-config.sh` and the
+database dumps hold copies of these secrets. They are encrypted, and they are pruned after 28 days.
+
+### POSTGRES_PASSWORD
+
+The `pg-data` volume ignores `POSTGRES_PASSWORD` after its first start, so changing only `.env`
+locks GlitchTip out. Change it inside the running database first, then in `.env`, then recreate
+`web`. The password is read by psql from the environment (`\getenv`), so it never appears in a
+process list or the shell history:
+
+```bash
+PW=$(openssl rand -hex 24)
+printf '%s\n' '\getenv pw PW' "ALTER USER glitchtip PASSWORD :'pw';" \
+  | PW="$PW" docker compose exec -T -e PW postgres psql -U glitchtip -d glitchtip -v ON_ERROR_STOP=1 -q
+sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$PW/" .env; unset PW
+docker compose up -d web
+docker compose ps web            # healthy again within about a minute
+```
+
+Then check that ingest still works: `POST /api/<id>/envelope/` lines with 200 in
+`docker compose logs --since 5m proxy`. `backup.sh` and `restore.sh` connect inside the postgres
+container and need no change.
+
+**If leaked:** Postgres is only on the internal `backend` network (web and postgres), so using the
+password needs access to the VM. Rotate immediately as above. Then list the connections: only `web`'s
+address should appear.
+
+```bash
+docker compose exec -T postgres psql -U glitchtip -d glitchtip \
+  -c "SELECT usename, client_addr, backend_start FROM pg_stat_activity WHERE client_addr IS NOT NULL"
+```
+
+### GlitchTip SECRET_KEY
+
+What it protects in GlitchTip 6.2.6 (read from the source), and so what a new key invalidates:
+
+- all logged-in sessions (everyone logs in again)
+- password-reset links
+- pending organization invitations (re-send them)
+- MFA "trust this browser" cookies
+
+It does **not** affect DSN and project keys (no app impact, no release), API tokens, TOTP secrets and
+recovery codes, or alert recipients: none of these are derived from or encrypted with it. There is no
+fallback key, so the switch is immediate.
+
+```bash
+sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
+docker compose up -d web
+```
+
+**If leaked:** rotate immediately. With the key, someone who also knows account details can forge
+password-reset links, invitations and MFA trust cookies. Then:
+
+- check organization members and API tokens in GlitchTip for anything you did not create;
+- check the admin paths' audit trail for addresses that are not yours ("Admin access audit"). The
+  dashboard and API are reachable only from the admin allowlist.
+
+### Discord webhook
+
+1. In Discord: Edit Channel → Integrations → Webhooks → delete the old webhook, then create a new one
+   and copy its URL.
+2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS` or `_INFRA`).
+3. Apply it:
+   - **#app-errors:** `scripts/init-project.sh <owner email>`, which updates GlitchTip's recipient.
+   - **#node-logs:** `docker compose up -d grafana`, which recreates Grafana with the new URL.
+   - **#infra:** nothing; `healthcheck.sh` reads `.env` on every run.
+4. Send a test message (README.md, "Alerts").
+
+**If leaked:** anyone with the URL can post to that channel. Delete the webhook in Discord **first**:
+that stops any misuse at once, and the only cost is missed alerts until step 3. Then follow steps 1–4.
+Copies of the old URL in `.env` bundles and database dumps are harmless once the webhook is deleted.
+
 ## Alerts (Discord)
 
 What each message means and where to start. README.md ("Alerts") has the setup and the tests.
@@ -116,7 +218,7 @@ What each message means and where to start. README.md ("Alerts") has the setup a
 | disk | "Disk full" below |
 | services | `docker compose ps`, then `docker compose logs --tail=100 <service>`. For Loki: "Is Loki up?" |
 | backup | `tail backup/backup.log`; run the backup cron line by hand. "off-VM copy not configured" on a VM that hasn't migrated: "Moving to encrypted backups" |
-| cert | "Certificate renewal" below; then copy `server.crt` to the node agents |
+| cert | "Scheduled renewal and key rotation" above |
 
 `scripts/healthcheck.sh` prints every failing check; `journalctl -t cointmu-healthcheck` shows what
 cron saw. Its state is in `state/healthcheck/` (one file per failing check that was posted).
@@ -251,6 +353,55 @@ journalctl -u alloy -n 50 --no-pager
 3. `docker compose pull && docker compose up -d`. GlitchTip runs its migrations on start.
 4. Postgres **major** upgrades (18 → 19) need a dump and restore into a fresh volume.
    Minor tags (18.6 → 18.7) only need a pull and restart.
+
+## Host patching (VM and node servers)
+
+Security updates install themselves; everything that restarts services is done by hand.
+
+```bash
+sudo apt-get install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades      # "Yes": writes 20auto-upgrades
+sudoedit /etc/apt/apt.conf.d/50unattended-upgrades
+```
+
+In `50unattended-upgrades`, allow only the security pockets, never upgrade Docker, and never reboot:
+
+```
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::Package-Blacklist {
+        "docker-ce"; "docker-ce-cli"; "containerd.io";
+        "docker-buildx-plugin"; "docker-compose-plugin"; "docker.io";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+```
+
+Check it: `sudo unattended-upgrade --dry-run --debug 2>&1 | grep -iE 'allowed origins|blacklist|held'`.
+
+- **Alloy (node servers):** `apt-mark hold alloy` is respected, and Grafana's apt repository is not
+  a security pocket anyway. Alloy stays at its pinned version until "Upgrade Alloy on a node".
+- **Docker Engine (VM), by hand:** restarting the engine restarts every container (`unless-stopped`
+  brings them back), so ingest is down for about a minute. The apps queue their reports meanwhile.
+  ```bash
+  sudo apt-get update
+  sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin
+  docker compose ps                          # all healthy again
+  sudo iptables -S DOCKER-USER | grep ctorigdstport   # the cointmu rules (README.md, Firewall)
+  ```
+  The `DOCKER-USER` rules come from `/etc/ufw/after.rules`, loaded by ufw at boot and on
+  `ufw reload`. If the `grep` prints nothing, run `sudo ufw reload` before anything else: without
+  them the HTTPS port is open to every network.
+- **Kernel and library updates** need a reboot (`/var/run/reboot-required` exists;
+  `/var/run/reboot-required.pkgs` lists why). Reboot in a fixed weekly window outside lab hours:
+  - **The VM:** containers come back by themselves. Afterwards: `docker compose ps`, the
+    `iptables` check above and `scripts/healthcheck.sh`. The apps queue reports during the reboot.
+  - **Node servers:** one at a time, so the network keeps a bootnode. Alloy's WAL keeps the lines
+    meanwhile. If a node stays down longer than 15 minutes, "Host silent" fires: silence it first
+    ("Silence a node that is down on purpose").
 
 ## Moving to nginx/local/ (deployments from before the log stack)
 
