@@ -234,6 +234,9 @@ What each message means and where to start. README.md ("Alerts") has the setup a
 | backup | `tail backup/backup.log`; run the backup cron line by hand. "off-VM copy not configured" on a VM that hasn't migrated: "Moving to encrypted backups" |
 | cert | "Scheduled renewal and key rotation" above |
 
+A `services` failure for `prometheus` means pushed host metrics are not stored; the agents keep them in
+their WAL (up to 8 h) and replay them. Check `docker compose logs --tail=50 prometheus`.
+
 `scripts/healthcheck.sh` prints every failing check; `journalctl -t cointmu-healthcheck` shows what
 cron saw. Its state is in `state/healthcheck/` (one file per failing check that was posted).
 
@@ -352,15 +355,27 @@ The age key stays on your workstation: you decrypt there and stream the plaintex
     "http://loki:3100/loki/api/v1/delete?query=%7Bhost%3D%22<host>%22%7D&start=$(date -d '-30 days' +%s)"
   docker compose exec grafana wget -qO- http://loki:3100/loki/api/v1/delete   # lists requests
   ```
+- Prometheus: lower `PROMETHEUS_RETENTION_SIZE` or `PROMETHEUS_RETENTION_TIME` in `.env`, then
+  `docker compose up -d prometheus`. Prometheus deletes whole blocks once a limit is passed, so the
+  disk use drops in steps, not at once.
 - Emergency: `docker compose stop loki grafana`. GlitchTip and its ingest keep running, and
   the agents keep their logs in their WAL (up to 24 h) until Loki is back.
 
-## Upgrade Loki or Grafana
+## Upgrade Loki, Prometheus or Grafana
 
 Dependabot opens the PRs (tag + digest in `compose.yml`). Read the release notes (Loki:
-[upgrade guide](https://grafana.com/docs/loki/latest/setup/upgrade/), Grafana: "What's new"),
-then `docker compose pull loki grafana && docker compose up -d loki grafana`. Loki keeps its
-data in `loki-data`; a Grafana major upgrade migrates its SQLite database on start.
+[upgrade guide](https://grafana.com/docs/loki/latest/setup/upgrade/), Prometheus:
+[release notes](https://github.com/prometheus/prometheus/releases), Grafana: "What's new").
+CI runs `promtool check config` with the new image, then:
+
+```bash
+docker compose pull loki prometheus grafana && docker compose up -d loki prometheus grafana
+docker compose ps prometheus            # healthy
+```
+
+Loki keeps its data in `loki-data`, and Prometheus in `prometheus-data`. A Prometheus restart is a gap
+of a few seconds: the agents buffer and replay it. A Grafana major upgrade migrates its SQLite database
+on start. For a Prometheus **major** upgrade (3 → 4), read its migration guide first.
 
 ## Upgrade Alloy on a node
 
@@ -511,6 +526,20 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
    notifier", which also starts `upsmon`, monitor-only.
 2. **UPS journal in Loki (path B).** Nothing to restart on the VM. Add the host's log login and
    address there ("On the telemetry VM", logs), then on the host: "Alloy".
+3. **Prometheus and the metrics push endpoint.** **The proxy refuses to start without
+   `nginx/local/metrics-agents.htpasswd`**, so create it before recreating the proxy:
+   ```bash
+   git pull
+   TLS_GID=$(sed -n 's/^TLS_GID=//p' .env)
+   sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/metrics-agents.htpasswd
+   nano .env      # add PROMETHEUS_RETENTION_TIME=90d and PROMETHEUS_RETENTION_SIZE=2GB
+   docker compose up -d           # creates prometheus, recreates grafana and proxy
+   docker compose ps              # prometheus healthy
+   # from a campus laptop (not an agent): the endpoint answers 403
+   curl -sk -o /dev/null -w '%{http_code}\n' -X POST https://<VM>/prometheus/api/v1/write
+   ```
+   `scripts/backup-config.sh` already covers the new htpasswd (all of `nginx/local/`). Prometheus
+   data is not backed up (README.md, "Backups").
 
 ## Node logs (Loki + Grafana)
 

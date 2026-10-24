@@ -1,0 +1,16 @@
+# Prometheus for host metrics pushed by agents (Alloy remote_write through
+# nginx /prometheus/api/v1/write, one login per agent). It scrapes nothing
+# itself; retention is set by flags in compose.yml.
+
+global:
+  # Only used by rules Prometheus would evaluate itself (none: alert rules are
+  # Grafana-managed, grafana/provisioning/alerting/rules.yml).
+  evaluation_interval: 1m
+
+storage:
+  tsdb:
+    # An agent that could not reach the VM replays its backlog from its WAL
+    # (Alloy keeps up to 8 h by default). Without this window Prometheus
+    # rejects samples older than its in-memory head (about an hour) as out of
+    # bounds, and the gap stays.
+    out_of_order_time_window: 8h

@@ -19,6 +19,9 @@ CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ─
 
 geth node ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ◀── Grafana ◀── nginx /grafana/
   IPs/node IDs redacted, WAL       agent allowlist, rate limit    internal network     admin allowlist
+                                                                                    │
+host agent ─Alloy, HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ◀─┘
+  remote write                      agent allowlist, own logins     internal network
 
 UPS host ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push   (NUT journal, addresses redacted)
   └─ upsmon → upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
@@ -48,27 +51,30 @@ Measured on the bootnode server (two geth processes at the default INFO level): 
 | Loki | 60–300 MB used (768 MB) | under 0.5 GB for 5 such servers × 30 days, plus compaction headroom |
 | Grafana | about 240 MB used (512 MB) | under 100 MB (SQLite) |
 | Alloy on each node | 50–100 MB | WAL: at most a day of that node's logs |
+| Prometheus (host metrics) | about 100 MB used (384 MB) | the UPS writes about 0.3 MB a day; capped at `PROMETHEUS_RETENTION_SIZE` (2 GB) and `PROMETHEUS_RETENTION_TIME` (90 days), whichever comes first |
 
-The container memory limits add up to about 2.9 GB (GlitchTip stack 1.6 GB, log stack 1.3 GB),
-hence 4 GB. Loki shares the disk with PostgreSQL and has no size-based retention: the ingest limits
-in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook covers the rest.
+The container memory limits add up to about 3.3 GB (GlitchTip stack 1.6 GB, log and metrics stack
+1.7 GB), within the 4 GB. Loki shares the disk with PostgreSQL and has no size-based retention: the
+ingest limits in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook covers
+the rest. Prometheus has both a time and a size limit.
 
 ## What this repo sets up
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) |
-| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) only to `nginx/local/agent-allow.conf` plus a per-agent login. The rest of Loki's API is not proxied |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) |
+| Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki, Prometheus and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) and the metrics push (`/prometheus/api/v1/write`) only to `nginx/local/agent-allow.conf` plus a per-agent login, a separate one per endpoint. The rest of Loki's and Prometheus' APIs is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
+| Host metrics | Prometheus single binary with the remote-write receiver, no scrape targets of its own; retention by time and size. Each source pushes with its own login (`scripts/agent-cred.sh add <name> metrics`) and `job` label, so more sources (e.g. CointMU-Bot) only need a login |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
-| IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`. Its access log has no client IP or query string for event ingest, `/_health/`, successful log pushes and every 403. The exception is an audit trail: requests that pass the admin allowlist (GlitchTip dashboard and API, `/grafana/`) are logged with the client address, and failed log pushes (401/413/429/5xx) with the address and the agent login. Admin logins happen inside GlitchTip and Grafana, so nginx records addresses, not user names. The audit lines are kept at least 30 days ("Logs"). nginx's error log is limited to critical errors (rare TLS failures, which include the client address), except on the log push, where errors name the agent's address. IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
+| IP addresses | nginx clears `X-Forwarded-For`/`X-Real-IP`. Its access log has no client IP or query string for event ingest, `/_health/`, successful log pushes and every 403. The exception is an audit trail: requests that pass the admin allowlist (GlitchTip dashboard and API, `/grafana/`) are logged with the client address, and failed log and metrics pushes (401/413/429/5xx) with the address and the agent login. Admin logins happen inside GlitchTip and Grafana, so nginx records addresses, not user names. The audit lines are kept at least 30 days ("Logs"). nginx's error log is limited to critical errors (rare TLS failures, which include the client address), except on the log push, where errors name the agent's address. IP scrubbing is on for the org and project (GlitchTip ignores private, non-routable IPs anyway) |
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
 | Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, and #ups for the UPS host's power events ("Alerts" below) |
 | Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
-| Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
+| Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki, Prometheus and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
 ## Deploy
 
@@ -95,13 +101,14 @@ sed -i "s/^TLS_GID=.*/TLS_GID=$TLS_GID/" .env
 #    Run as yourself, not root: it asks for sudo once to hand the key to that group.
 scripts/gen-cert.sh new IP:10.0.0.10
 
-# 3. Per-host nginx files in nginx/local/ (the proxy refuses to start without all three)
+# 3. Per-host nginx files in nginx/local/ (the proxy refuses to start without all four)
 cp nginx/local/admin-allow.conf.example nginx/local/admin-allow.conf
 # add one "allow <address or subnet>;" line per admin machine or subnet
 cp nginx/local/agent-allow.conf.example nginx/local/agent-allow.conf
 # add one "<address or subnet> 1;" line per geth node server (campus or tailnet IP)
 sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/loki-agents.htpasswd
-# agent logins are added later with scripts/agent-cred.sh (agents/alloy/README.md)
+sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/metrics-agents.htpasswd
+# agent logins are added later with scripts/agent-cred.sh (agents/alloy/README.md, agents/ups/README.md)
 
 # 4. Firewall (see below), then start
 docker compose up -d
@@ -182,6 +189,7 @@ request would look like the same internal address.
 | Off the VM | Only `backup/offsite/`. Everything there is encrypted to `BACKUP_AGE_RECIPIENT` (a public key in `.env`); the private key is kept offline, never on the VM |
 | Retention | Every dump from the last 7 days plus Sunday dumps for 28 days, on the VM and in `offsite/` |
 | RPO | 24 hours (one dump a day) |
+| Not backed up | Loki's node logs and Prometheus' host metrics (`loki-data`, `prometheus-data`). They are history for debugging, not records; a rebuilt VM starts them empty |
 | RTO | About 1 hour to rebuild on a new VM from the newest bundle and dump (RUNBOOK.md, "Rebuild on a new VM"). The first restore drill measures it; replace this estimate with the measured time |
 
 Set up once:
@@ -338,4 +346,4 @@ patching, restore (with the quarterly restore drill and a rebuild on a new VM), 
 "reports are not arriving" (including rate limits behind NAT), the admin access audit, what each
 alert means, and for the log stack: adding a node agent, rotating agent logins, retention, Grafana
 users and the break-glass admin, and "logs are not arriving"; for the UPS: the host's messages,
-rotating its webhook, and "Moving to UPS monitoring".
+rotating its webhook, upgrading Prometheus, and "Moving to UPS monitoring".

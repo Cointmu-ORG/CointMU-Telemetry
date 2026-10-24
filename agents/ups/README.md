@@ -158,8 +158,10 @@ command; the VMs are shut down after it.
   - the payloads
 
   About 2 minutes.
-- `agents/ups/check-ups.sh`: a throwaway copy of the stack. It feeds test journal lines through
-  `config.alloy` and nginx into Loki, and checks the labels and the redaction. About 2 minutes; it
-  never touches a running deployment.
+- `agents/ups/check-ups.sh`: a throwaway copy of the stack. It checks:
+  - test journal lines through `config.alloy` and nginx into Loki: labels, redaction
+  - the metrics push endpoint: 2xx, 401, 403, 404, audit log
+
+  About 2 minutes; it never touches a running deployment.
 
 Both run in CI (job `ups`).
