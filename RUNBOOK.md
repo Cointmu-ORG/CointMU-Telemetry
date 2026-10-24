@@ -207,6 +207,20 @@ password-reset links, invitations and MFA trust cookies. Then:
 that stops any misuse at once, and the only cost is missed alerts until step 3. Then follow steps 1–4.
 Copies of the old URL in `.env` bundles and database dumps are harmless once the webhook is deleted.
 
+### UPS host webhook (#ups)
+
+The UPS host has its own #ups webhook, in a file on the host; it never goes in `.env`. On the UPS
+host:
+
+```bash
+read -rsp 'new host #ups webhook URL: ' URL; echo
+printf '%s' "$URL" | sudo install -m 600 -o nut -g nut /dev/stdin /etc/cointmu-ups/discord-webhook; unset URL
+sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test     # a TEST message in #ups
+```
+
+The next event uses it; nothing needs a restart. **If leaked:** delete it in Discord first, as above.
+Power events are lost until the new one is in place.
+
 ## Alerts (Discord)
 
 What each message means and where to start. README.md ("Alerts") has the setup and the tests.
@@ -232,6 +246,24 @@ cron saw. Its state is in `state/healthcheck/` (one file per failing check that 
 | Loki unreachable or no logs | "Is Loki up?". On a fresh deployment it fires until the first agent ships logs. While Loki does not answer, the other two rules keep their last state: no false "resolved" |
 
 **#app-errors** (GlitchTip, each new issue once): open the issue link from the campus LAN.
+
+**#ups from the UPS host** (`ups-notify.sh`, one message per transition; agents/ups/README.md):
+
+| Message | Meaning, first steps |
+|---|---|
+| ON BATTERY | Mains lost for 30 s. Check whether the outage is local (breaker, PDU) or campus-wide. Note the runtime in the message: nothing shuts down by itself (monitor-only), so a long outage needs a shutdown by hand ("LOW BATTERY") |
+| BACK ON MAINS | Power is back. The UPS recharges |
+| LOW BATTERY | **Nothing shuts down by itself (monitor-only)**: power can fail within minutes, taking the host and the telemetry VM down hard. If mains is not back, shut down by hand now: on the telemetry VM `docker compose stop`, then on the UPS host `shutdown -h now` (Proxmox stops the VM first) |
+| FORCED SHUTDOWN | Only once automatic shutdown is on: sent to hosts that monitor this UPS as secondaries; they shut down now |
+| SHUTTING DOWN | Only once automatic shutdown is on: this host is running its shutdown command. It may be the last message: the post is given up after about 4 s |
+| REPLACE BATTERY | The UPS failed its battery test. Order a battery. NUT repeats it every 12 h until the battery is replaced |
+| COMM LOST / COMM RESTORED | The UPS was unreachable for 60 s (USB cable, driver). `systemctl status 'nut-driver@*'` and `journalctl -u 'nut*' -n 50` on the host. While it lasts, nothing else is reported |
+
+### After the battery ran out (or a shutdown by hand)
+
+1. Did the UPS host come back, and the telemetry VM with it (it starts on boot)? Check in the Proxmox UI.
+2. On the VM: `docker compose ps`, then `scripts/healthcheck.sh`. After a hard power loss also
+   `docker compose logs --tail=50 postgres` (crash recovery should say "database system is ready").
 
 ### Silence a node that is down on purpose
 
@@ -469,6 +501,14 @@ copy is disabled. The old cron line, which copies all of `backup/`, keeps workin
 6. Add the health check cron line (README.md, "Alerts"). Its backup check needs the stamp from
    "Moving to encrypted backups"; until that is done it reports "off-VM copy not configured".
 7. Create the per-admin Grafana users ("Grafana users") and stop using `admin` day to day.
+
+## Moving to UPS monitoring (deployments from before it)
+
+The pieces came in this order; do the steps that are not done yet, in order. Host steps are in
+[agents/ups/README.md](agents/ups/README.md).
+
+1. **Discord from the UPS host (path A).** Nothing changes on the VM. On the UPS host: "Discord
+   notifier", which also starts `upsmon`, monitor-only.
 
 ## Node logs (Loki + Grafana)
 

@@ -1,0 +1,40 @@
+# Lines for /etc/nut/upsmon.conf on the UPS host (agents/ups/README.md, which
+# deletes the existing lines with these keywords and appends this file, with
+# <UPSMON_PASSWORD> filled in from upsd.users.snippet). Keep SHUTDOWNCMD,
+# HOSTSYNC, POLLFREQ and the other existing lines.
+
+# The unprivileged user upsmon drops to; it runs NOTIFYCMD, so it is the one
+# that reads /etc/cointmu-ups/discord-webhook. Debian's default, made explicit.
+RUN_AS_USER nut
+
+# MONITOR ONLY: power value 0 and MINSUPPLIES 0. upsmon reports every event
+# but never shuts this host down, not even on low battery (upsmon's recalc():
+# shutdown only when the online power value drops below MINSUPPLIES). This
+# keeps the host's behaviour as it was before upsmon ran. To turn automatic
+# shutdown on later, change "0 ... secondary" to "1 ... primary", the user's
+# role in upsd.users to "upsmon primary", and MINSUPPLIES to 1.
+MONITOR ups@localhost 0 upsmon-local <UPSMON_PASSWORD> secondary
+MINSUPPLIES 0
+
+# upssched debounces and calls ups-notify.sh (upssched.conf.snippet).
+NOTIFYCMD /usr/sbin/upssched
+
+# SYSLOG keeps upsmon's own journal line (shipped to Loki, agents/ups/), EXEC
+# hands the event to upssched. NOCOMM is not here: upsmon repeats it every
+# NOCOMMWARNTIME; COMMBAD already covers a lost UPS. FSD and SHUTDOWN only
+# happen once automatic shutdown is on.
+NOTIFYFLAG ONBATT SYSLOG+EXEC
+NOTIFYFLAG ONLINE SYSLOG+EXEC
+NOTIFYFLAG LOWBATT SYSLOG+EXEC
+NOTIFYFLAG FSD SYSLOG+EXEC
+NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
+NOTIFYFLAG REPLBATT SYSLOG+EXEC
+NOTIFYFLAG COMMBAD SYSLOG+EXEC
+NOTIFYFLAG COMMOK SYSLOG+EXEC
+
+# Only used with automatic shutdown on. upsmon runs NOTIFYCMD in a forked
+# child, sends SHUTDOWN, waits FINALDELAY seconds, then runs SHUTDOWNCMD.
+# ups-notify.sh gives up the shutdown post after about 4 s (1 s upsc + 3 s
+# curl), so 10 s lets it finish or time out first, with 6 s to spare. The
+# package default (5) would leave 1 s. Never lower it below 5.
+FINALDELAY 10

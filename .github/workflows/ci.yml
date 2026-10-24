@@ -68,6 +68,7 @@ jobs:
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
           scripts/*.sh nginx/require-local.sh agents/alloy/check-redaction.sh
+          agents/ups/*.sh agents/ups/testdata/*.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
   alloy:
@@ -151,3 +152,13 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  # The UPS host's Discord notifier (path A) end to end: real NUT daemons on
+  # a fake UPS in a throwaway container, against a local listener.
+  ups:
+    name: ups
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: agents/ups/check-notify.sh
