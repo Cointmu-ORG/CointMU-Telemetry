@@ -106,6 +106,37 @@ services:
     mem_limit: 768m
     pids_limit: 200
 
+  # Metrics pushed by host agents (README.md, "UPS monitoring"): the proxy
+  # passes POST /prometheus/api/v1/write through and nothing else, so the query
+  # API is reachable from Grafana only. No scrape targets of its own.
+  prometheus:
+    <<: [*hardening, *logging]
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+      # Whichever limit is reached first deletes the oldest data.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-90d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-2GB}
+    environment:
+      # Go GC works harder before mem_limit is hit instead of being OOM-killed.
+      GOMEMLIMIT: 300MiB
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [logs]
+    mem_limit: 384m
+    pids_limit: 200
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # Served by the proxy at /grafana/ to the admin allowlist only.
   grafana:
     <<: [*hardening, *logging]
@@ -148,6 +179,7 @@ services:
     networks: [logs, alerts-egress]
     depends_on:
       loki: { condition: service_started }
+      prometheus: { condition: service_started }
     mem_limit: 512m
     # Grafana runs some bundled data sources as plugin processes; at 100 it
     # failed to create threads ("newosproc") on first start.
@@ -207,10 +239,12 @@ networks:
   backend:
     internal: true
   frontend: {}
-  # Loki and Grafana: reachable only from the proxy, no route out, no Postgres.
+  # Loki, Prometheus and Grafana: reachable only from the proxy, no route out,
+  # no Postgres.
   logs:
     internal: true
-  # Grafana's route out, for the Discord webhook only; Loki is not on it.
+  # Grafana's route out, for the Discord webhook only; Loki and Prometheus are
+  # not on it.
   # Docker cannot limit it to discord.com: the VM firewall decides
   # (README.md, "Alerts").
   alerts-egress: {}
@@ -219,4 +253,5 @@ volumes:
   pg-data:
   uploads:
   loki-data:
+  prometheus-data:
   grafana-data:

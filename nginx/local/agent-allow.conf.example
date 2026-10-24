@@ -1,9 +1,11 @@
 # Copy to nginx/local/agent-allow.conf (git-ignored) and list where the host
-# agents (Grafana Alloy on the geth nodes and the UPS host) push logs from, one
+# agents (Grafana Alloy on the geth nodes and the UPS host) push from, one
 # "<address or subnet> 1;" per line (nginx geo syntax, unlike admin-allow.conf).
-# Only these addresses reach POST /loki/api/v1/push; each agent also needs its
-# own login in loki-agents.htpasswd (scripts/agent-cred.sh). Keep this list
-# separate from the admin list: laptops on the campus LAN must get 403 here.
+# Only these addresses reach POST /loki/api/v1/push and
+# POST /prometheus/api/v1/write; each agent also needs its own login per
+# endpoint (scripts/agent-cred.sh, loki-agents.htpasswd and
+# metrics-agents.htpasswd). Keep this list separate from the admin list:
+# laptops on the campus LAN must get 403 here.
 # <SERVER_SUBNET> 1;       e.g. 10.0.1.0/24 1;
 # <SERVER_IP> 1;           e.g. 10.0.1.20 1;
 # <UPS_HOST_IP> 1;         the Proxmox host with the UPS (agents/ups/)

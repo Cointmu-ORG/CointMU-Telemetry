@@ -1,0 +1,13 @@
+# Host metrics pushed by the agents (agents/ups/). Loki stays the default.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: false
+    jsonData:
+      # Agents push every 15 s; Grafana's default step would hide that.
+      timeInterval: 15s

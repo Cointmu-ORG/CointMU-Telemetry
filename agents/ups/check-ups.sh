@@ -6,6 +6,10 @@
 #
 # agents/ups/config.alloy pushes test journal lines (testdata/ups-journal.txt,
 # written as a real journal file) through nginx. Checks:
+# - the metrics push endpoint: a test series pushed with promtool (remote
+#   write, TLS, its own login) arrives; 2xx and 403 in the noip log; wrong
+#   password, a log login and other paths refused (401, 401, 404); a
+#   non-allowlisted address gets 403 before auth
 # - logs in Loki with job="ups" and their labels, no address left, other units
 #   not shipped
 # Takes about two minutes.
@@ -18,10 +22,16 @@ ROOT_DIR="$(cd ../.. && pwd)"
 readonly ROOT_DIR
 ALLOY_IMAGE=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' ../alloy/check-redaction.sh)
 readonly ALLOY_IMAGE
+PROMETHEUS_IMAGE=$(sed -n 's|^ *image: \(prom/prometheus:.*\)$|\1|p' "$ROOT_DIR/compose.yml")
+readonly PROMETHEUS_IMAGE
 readonly TEST_IMAGE=cointmu-ups-test:local
 readonly PROJECT="cointmu-ups-check-$$"
 readonly AGENT_HOST=ups-check
 readonly WAIT_SECONDS=120
+readonly NO_CONTENT=204
+readonly UNAUTHORIZED=401
+readonly FORBIDDEN=403
+readonly NOT_FOUND=404
 readonly EXPECTED_LOG_LINES=7
 
 work=$(mktemp -d)
@@ -54,8 +64,11 @@ prepare() {
   : > "$work/local/admin-allow.conf"
   : > "$work/local/agent-allow.conf"
   logs_pw=$(openssl rand -hex 16)
+  metrics_pw=$(openssl rand -hex 16)
   printf 'ups-check-logs:%s\n' "$(openssl passwd -6 "$logs_pw")" > "$work/local/loki-agents.htpasswd"
+  printf 'ups-check-metrics:%s\n' "$(openssl passwd -6 "$metrics_pw")" > "$work/local/metrics-agents.htpasswd"
   printf '%s' "$logs_pw" > "$work/alloy/push-password"
+  printf '%s' "$metrics_pw" > "$work/alloy/metrics-password"
   cp "$work/certs/server.crt" "$work/alloy/telemetry.crt"
   chmod -R a+rX "$work"
   # Same mounts as compose.yml, from $work; no published port; GlitchTip is
@@ -78,11 +91,12 @@ wait_for() {
 }
 
 start_stack() {
-  compose up -d --no-deps loki proxy >"$work/up.log" 2>&1 || { cat "$work/up.log"; return 1; }
+  compose up -d --no-deps loki prometheus proxy >"$work/up.log" 2>&1 || { cat "$work/up.log"; return 1; }
   docker run -d --name "$PROJECT-logs-probe" --network "${PROJECT}_logs" -v "$ROOT_DIR:/repo:ro" \
     "$TEST_IMAGE" sleep infinity >/dev/null
   docker run -d --name "$PROJECT-front-probe" --network "${PROJECT}_frontend" -v "$work/certs:/certs:ro" \
     "$TEST_IMAGE" sleep infinity >/dev/null
+  wait_for "prometheus ready" in_logs curl -fs http://prometheus:9090/-/ready
   wait_for "loki ready" in_logs sh -c 'curl -fs http://loki:3100/ready | grep -q ^ready'
   # Its healthcheck needs GlitchTip (/_health/), which is not started here.
   wait_for "proxy answers" docker exec "$PROJECT-front-probe" \
@@ -116,6 +130,50 @@ start_alloy() {
     "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy /etc/alloy/config.alloy >/dev/null
 }
 
+# One series pushed the way any metrics source would: remote write over TLS
+# with its own login (README.md, "Host metrics").
+push_test_series() {
+  printf 'basic_auth:\n  username: ups-check-metrics\n  password_file: /c/metrics-password\ntls_config:\n  ca_file: /c/telemetry.crt\n' \
+    > "$work/alloy/promtool.yml"
+  chmod a+r "$work/alloy/promtool.yml"
+  echo 'cointmu_endpoint_check 1' | docker run --rm -i --network "${PROJECT}_frontend" -v "$work/alloy:/c:ro" \
+    --entrypoint promtool "$PROMETHEUS_IMAGE" push metrics --http.config.file=/c/promtool.yml \
+    --label=job=endpoint-check https://proxy:8443/prometheus
+}
+
+# $1 expected status, $2 description, rest: curl arguments.
+expect_status() {
+  local expected="$1" what="$2" status; shift 2
+  status=$(docker exec "$@" -s -o /dev/null -w '%{http_code}' 2>/dev/null) || true
+  if [[ "$status" == "$expected" ]]; then pass "$what: $status"; else fail "$what: got $status, expected $expected"; fi
+}
+
+# $1 description, $2 regex that must match a line of $log.
+expect_log() {
+  if grep -qE "$2" <<<"$log"; then pass "$1"; else fail "$1: no line matches $2"; fi
+}
+
+check_endpoint() {
+  local url=https://proxy:8443/prometheus/api/v1/write front="$PROJECT-front-probe" log
+  expect_status "$UNAUTHORIZED" "metrics push, wrong password" \
+    "$front" curl --cacert /certs/server.crt -u ups-check-metrics:wrong -X POST --data-binary x "$url"
+  expect_status "$UNAUTHORIZED" "metrics push with the logs login" \
+    "$front" curl --cacert /certs/server.crt -u "ups-check-logs:$logs_pw" -X POST --data-binary x "$url"
+  expect_status "$FORBIDDEN" "metrics push from a non-allowlisted address" \
+    "$PROJECT-logs-probe" curl -k -u "ups-check-metrics:$metrics_pw" -X POST --data-binary x "$url"
+  expect_status "$NOT_FOUND" "query API through nginx" \
+    "$front" curl --cacert /certs/server.crt "https://proxy:8443/prometheus/api/v1/query?query=up"
+  expect_status "$NOT_FOUND" "Prometheus UI through nginx" "$front" curl --cacert /certs/server.crt https://proxy:8443/prometheus/graph
+  log=$(compose logs --no-log-prefix proxy)
+  expect_log "successful pushes logged without address" "^\[[^]]+\] \"POST /prometheus/api/v1/write\" $NO_CONTENT "
+  expect_log "401 in the audit log with address and login" \
+    "^[0-9a-f.:]+ ups-check-metrics \[.*\"POST /prometheus/api/v1/write\" $UNAUTHORIZED "
+  expect_log "403 logged without address" "^\[[^]]+\] \"POST /prometheus/api/v1/write\" $FORBIDDEN "
+  if grep -qE "^[0-9a-f.:]+ .*\" ($NO_CONTENT|$FORBIDDEN) " <<<"$log"; then
+    fail "a 2xx or 403 push was logged with an address"
+  fi
+}
+
 check_logs() {
   local lines
   lines=$(queries logs "$AGENT_HOST")
@@ -139,8 +197,11 @@ prepare
 start_stack
 write_journal
 start_alloy
+if push_test_series; then pass "promtool push through nginx"; else fail "promtool push through nginx"; fi
+wait_for "test series arrives in Prometheus" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/agents/ups/testdata/ups_queries.py value 'cointmu_endpoint_check{job=\"endpoint-check\"}')\" = 1 ]"
 wait_for "logs arrive through nginx" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/agents/ups/testdata/ups_queries.py logs $AGENT_HOST | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')\" -ge $EXPECTED_LOG_LINES ]"
 check_logs
+check_endpoint
 
 (( failures == 0 )) || { echo "$failures check(s) failed" >&2; docker logs --tail 30 "$PROJECT-alloy" >&2; exit 1; }
-echo "OK: UPS logs pipeline as expected"
+echo "OK: UPS logs pipeline and metrics push endpoint as expected"
