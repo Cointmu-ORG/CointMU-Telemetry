@@ -55,7 +55,9 @@ EOF
 
 install_collector() {
   useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cointmu-ups
-  install -d -m 755 /usr/local/lib/cointmu-ups /etc/cointmu-ups
+  install -d -m 755 /usr/local/lib/cointmu-ups
+  # As the notifier step in README.md creates it, so the collector runs with the real mode.
+  install -d -m 751 -o root -g nut /etc/cointmu-ups
   install -m 755 "$SRC/ups-metrics.sh" "$SCRIPT"
   printf 'UPS=check@localhost\nHOST_LABEL=\n' > /etc/cointmu-ups/cointmu-ups.conf
   install -m 644 "$SRC/cointmu-ups.tmpfiles.conf" /etc/tmpfiles.d/cointmu-ups.conf
@@ -65,7 +67,8 @@ install_collector() {
 check_modes() {
   local expected actual path
   for expected in "/var/lib root root 755" "$OUT_DIR cointmu-ups alloy 2750" \
-    "$OUT_DIR/ups.prom cointmu-ups alloy 640" "$SCRIPT root root 755"; do
+    "$OUT_DIR/ups.prom cointmu-ups alloy 640" "$SCRIPT root root 755" \
+    "/etc/cointmu-ups root nut 751" "/etc/cointmu-ups/cointmu-ups.conf root root 644"; do
     path="${expected%% *}"
     actual="$path $(stat -c '%U %G %a' "$path")"
     if [[ "$actual" == "$expected" ]]; then pass "owner/mode $actual"; else fail "owner/mode $actual, expected $expected"; fi
