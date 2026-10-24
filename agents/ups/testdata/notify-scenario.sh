@@ -78,7 +78,7 @@ setup_listener() {
 install_notifier() {
   install -d -m 755 /usr/local/lib/cointmu-ups
   install -m 755 "$SRC/ups-notify.sh" /usr/local/lib/cointmu-ups/ups-notify.sh
-  install -d -m 750 -o root -g nut /etc/cointmu-ups
+  install -d -m 751 -o root -g nut /etc/cointmu-ups
   printf 'UPS=ups@localhost\nHOST_LABEL=check-host\n' > /etc/cointmu-ups/cointmu-ups.conf
   printf 'https://discord.com/api/webhooks/123456/%s' "$WEBHOOK_SECRET" \
     | install -m 600 -o nut -g nut /dev/stdin /etc/cointmu-ups/discord-webhook

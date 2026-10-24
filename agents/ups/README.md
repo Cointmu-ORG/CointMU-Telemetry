@@ -21,7 +21,7 @@ UPS ─USB─ NUT ──────┼─ B: NUT journal ─▶ Alloy ──HTT
 | File (this folder) | Goes to, on the UPS host | Owner, mode |
 |---|---|---|
 | `ups-notify.sh` | `/usr/local/lib/cointmu-ups/ups-notify.sh` | root:root 0755 |
-| `cointmu-ups.conf.example` | `/etc/cointmu-ups/cointmu-ups.conf`, filled in | root:root 0644 (directory 0750 root:nut) |
+| `cointmu-ups.conf.example` | `/etc/cointmu-ups/cointmu-ups.conf`, filled in | root:root 0644 (directory 0751 root:nut) |
 | the host's own #ups webhook URL | `/etc/cointmu-ups/discord-webhook` | **nut:nut 0600** |
 | `upssched.conf.snippet` | `/etc/nut/upssched.conf` (replaces it) | root:nut 0640 |
 | `upsmon.conf.snippet` | lines merged into `/etc/nut/upsmon.conf` | unchanged (root:nut 0640) |
@@ -38,6 +38,11 @@ Why the webhook file belongs to `nut` and not root: upsmon runs NOTIFYCMD, and w
 `ups-notify.sh`, as its unprivileged user (`RUN_AS_USER nut`). Only that system account (no login)
 and root can read the file. The URL reaches curl through a config file descriptor, never a command
 line or a log.
+
+Why the directory is `0751` and not `0750`: the metrics collector reads `cointmu-ups.conf` as its own
+user `cointmu-ups`, which is in neither `nut` nor `alloy` (`nut` could also read `/etc/nut/`, upsmon's
+password included). The execute bit for others lets it open that file by name; it still cannot list
+the directory, and the webhook file stays `nut` only.
 
 ## Requirements
 
@@ -78,7 +83,7 @@ docker compose up -d grafana
 upsc -l; systemctl list-units --no-pager 'nut*'
 sudo install -d -m 755 /usr/local/lib/cointmu-ups
 sudo install -m 755 ups-notify.sh /usr/local/lib/cointmu-ups/
-sudo install -d -m 750 -o root -g nut /etc/cointmu-ups
+sudo install -d -m 751 -o root -g nut /etc/cointmu-ups
 sudo install -m 644 cointmu-ups.conf.example /etc/cointmu-ups/cointmu-ups.conf
 sudoedit /etc/cointmu-ups/cointmu-ups.conf          # UPS=<ups>@localhost, HOST_LABEL
 # the host's own #ups webhook
