@@ -11,7 +11,8 @@ dashboard for admins. Agents on the nodes ([agents/alloy/](agents/alloy/README.m
 same HTTPS port with their own logins; the desktop app never uses that path.
 
 It also watches the **UPS** on one Proxmox host ("UPS monitoring" below): the host posts power
-events to Discord itself and ships the UPS daemon's journal to Loki.
+events to Discord itself, and ships the UPS daemon's journal to Loki and its metrics to
+[Prometheus](https://prometheus.io/), with a Grafana dashboard and threshold alerts.
 
 ```
 CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ──▶ PostgreSQL
@@ -20,11 +21,9 @@ CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ─
 geth node ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ◀── Grafana ◀── nginx /grafana/
   IPs/node IDs redacted, WAL       agent allowlist, rate limit    internal network     admin allowlist
                                                                                     │
-host agent ─Alloy, HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ◀─┘
-  remote write                      agent allowlist, own logins     internal network
-
-UPS host ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push   (NUT journal, addresses redacted)
-  └─ upsmon → upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
+UPS host ─Alloy, HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ◀───┘   alerts → #ups
+  NUT journal (→ /loki) + metrics   agent allowlist, own logins     internal network
+  └─ upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
 ```
 
 ## Why GlitchTip, not self-hosted Sentry
@@ -72,7 +71,7 @@ the rest. Prometheus has both a time and a size limit.
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
-| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, and #ups for the UPS host's power events ("Alerts" below) |
+| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, and #ups for the UPS (Grafana rules plus the UPS host itself) ("Alerts" below) |
 | Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki, Prometheus and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
@@ -226,6 +225,7 @@ All alerts go to one Discord server, one channel per source:
 | #app-errors | GlitchTip: each new issue of the desktop project, once | `DISCORD_WEBHOOK_APP_ERRORS` | `scripts/init-project.sh <email>` (re-run after a change) |
 | #node-logs | Grafana alert rules on the geth node logs | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
 | #infra | `scripts/healthcheck.sh` from cron: VM health, independent of Grafana and Loki | `DISCORD_WEBHOOK_INFRA` | read on every run |
+| #ups | Grafana alert rules on the UPS metrics (thresholds, stale or missing data) | `DISCORD_WEBHOOK_UPS` | `docker compose up -d grafana` |
 | #ups | The UPS host itself: power events ("UPS monitoring") | its own webhook, on the host only | read on every event |
 
 **Setup.** One webhook per channel: in Discord, Edit Channel → Integrations → Webhooks → New
@@ -251,6 +251,7 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
     - **Loki unreachable or no logs:** Loki query error, or nothing from any host for 15 min; pending
       for 5 min first. It also fires on a fresh deployment until the first agent ships logs.
   - A firing alert repeats at most every 12 h, and its resolution is posted once.
+- **#ups (Grafana):** the rule, the host and UPS, the value and the UPS dashboard link.
 - **#ups (host):** the event, the UPS, the host label, charge and runtime.
 - **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
   - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
@@ -283,7 +284,7 @@ network team to allow it through their firewall or proxy.
 ```bash
 # 1. Webhook and VM egress: a test message to each configured channel (expect 204).
 #    The URL goes to curl through a config file descriptor, never on the command line.
-for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA; do
+for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA DISCORD_WEBHOOK_UPS; do
   url=$(sed -n "s/^$var=//p" .env); [ -n "$url" ] || continue
   printf '{"content":"test: %s on %s","allowed_mentions":{"parse":[]}}' "$var" "$(hostname -s)" \
     | curl -sS -o /dev/null -w "$var: %{http_code}\n" -H 'Content-Type: application/json' \
@@ -304,8 +305,8 @@ print("Discord answered", r.status if r else "nothing (blocked or unreachable)")
 DISK_MAX_PERCENT=1 scripts/healthcheck.sh; scripts/healthcheck.sh   # "FAIL disk", then "OK disk"
 ```
 
-For #node-logs, open Grafana → Alerting → Contact points → `discord-node-logs` → Test (as an org
-Admin). The UPS host tests its own #ups webhook with
+For #node-logs and #ups, open Grafana → Alerting → Contact points → `discord-node-logs` or
+`discord-ups` → Test (as an org Admin). The UPS host tests its own webhook with
 `sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (agents/ups/README.md).
 
 **Blind spot.** GlitchTip, Grafana and `healthcheck.sh` all run on this VM. If the whole VM is down
@@ -323,17 +324,34 @@ and details are in [agents/ups/README.md](agents/ups/README.md).
 |---|---|---|---|
 | A | upsmon → upssched (debounce) → `ups-notify.sh`, straight to Discord | #ups: on battery (after 30 s), back on mains, low battery, replace battery, comm lost (after 60 s) and restored; forced shutdown and shutting down once automatic shutdown is turned on | no |
 | B | NUT's journal through Alloy into Loki (`job="ups"`, addresses redacted) | Grafana dashboard "UPS", log panel | yes |
+| C | `ups-metrics.sh` every 15 s, Alloy's textfile collector, remote write into Prometheus | dashboard "UPS"; alerts to #ups | yes |
+
+**No double messages.** The host posts every power transition (A). Grafana alerts only on what
+needs a threshold or what the host can't report about itself:
+- **UPS on battery for 10 min**
+- **UPS charge below 50 %**
+- **UPS runtime below 15 min.** The UPS reports no low-battery levels of its own (no
+  `battery.charge.low` or `battery.runtime.low`), and nothing shuts down by itself. 15 minutes
+  leaves time to shut the telemetry VM and the host down by hand before the UPS raises its own
+  low-battery flag. The charge is estimated from the battery voltage, so it drops quickly under
+  load; runtime is the better signal.
+- **UPS unreadable:** `upsc` fails.
+- **UPS metrics stale:** the collector stopped while Alloy keeps sending its last file.
+- **UPS data missing:** nothing from the UPS host for 5 min.
+
+RUNBOOK.md ("Alerts") has what each one means.
 
 **Blind spot.** The telemetry VM runs on the UPS host itself.
-- **During an outage** the host and the VM are both on battery, so A and B keep working. B goes
-  from the host to the VM over the host's own bridge. A needs the campus uplink to discord.com, so
-  it stops if the switch or uplink loses power first.
-- **When the battery runs out**, the host and the VM lose power at the same moment, and B stops
-  with them; nothing shuts down cleanly first (monitor-only). The last message is "LOW BATTERY"
-  from the host, if the UPS raises it in time. Shutting down by hand on that message is the only
-  clean way out (RUNBOOK.md).
-- **Afterwards**, the gap stays in the logs. The Alloy WAL replays what the host collected while
-  the VM was unreachable, up to 24 h back. Nothing is collected while the host itself is off.
+- **During an outage** the host and the VM are both on battery, so A, B and C all keep working.
+  B and C go from the host to the VM over the host's own bridge. A needs the campus uplink to
+  discord.com, so it stops if the switch or uplink loses power first.
+- **When the battery runs out**, the host and the VM lose power at the same moment, and B and C
+  stop with them; nothing shuts down cleanly first (monitor-only). The last messages are "LOW
+  BATTERY" from the host (if the UPS raises it in time) and "UPS runtime below 15 min" from
+  Grafana. Shutting down by hand on that alert is the only clean way out (RUNBOOK.md).
+- **Afterwards**, the gap stays in the graphs. The Alloy WAL replays what the host collected while
+  the VM was unreachable: metrics from up to 8 h back, logs from up to 24 h back. Nothing is
+  collected while the host itself is off.
 - **If automatic shutdown is turned on later** (upsmon.conf.snippet), A's shutdown post is best
   effort: it is given up after about 4 s, so that `FINALDELAY` (10 s) is never exceeded. If
   Discord is slow at that moment, the "SHUTTING DOWN" message is lost.
@@ -345,5 +363,5 @@ See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate re
 patching, restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades,
 "reports are not arriving" (including rate limits behind NAT), the admin access audit, what each
 alert means, and for the log stack: adding a node agent, rotating agent logins, retention, Grafana
-users and the break-glass admin, and "logs are not arriving"; for the UPS: the host's messages,
-rotating its webhook, upgrading Prometheus, and "Moving to UPS monitoring".
+users and the break-glass admin, and "logs are not arriving"; for the UPS: the alerts, rotating the
+host's webhook and logins, upgrading Prometheus, and "Moving to UPS monitoring".

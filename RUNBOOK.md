@@ -196,10 +196,10 @@ password-reset links, invitations and MFA trust cookies. Then:
 
 1. In Discord: Edit Channel → Integrations → Webhooks → delete the old webhook, then create a new one
    and copy its URL.
-2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS` or `_INFRA`).
+2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS`, `_INFRA` or `_UPS`).
 3. Apply it:
    - **#app-errors:** `scripts/init-project.sh <owner email>`, which updates GlitchTip's recipient.
-   - **#node-logs:** `docker compose up -d grafana`, which recreates Grafana with the new URL.
+   - **#node-logs, #ups (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
    - **#infra:** nothing; `healthcheck.sh` reads `.env` on every run.
 4. Send a test message (README.md, "Alerts").
 
@@ -209,8 +209,8 @@ Copies of the old URL in `.env` bundles and database dumps are harmless once the
 
 ### UPS host webhook (#ups)
 
-The UPS host has its own #ups webhook, in a file on the host; it never goes in `.env`. On the UPS
-host:
+The UPS host has its own #ups webhook, separate from Grafana's `DISCORD_WEBHOOK_UPS`. It never goes in
+`.env`, so rotating one leaves the other alone. On the UPS host:
 
 ```bash
 read -rsp 'new host #ups webhook URL: ' URL; echo
@@ -235,7 +235,8 @@ What each message means and where to start. README.md ("Alerts") has the setup a
 | cert | "Scheduled renewal and key rotation" above |
 
 A `services` failure for `prometheus` means pushed host metrics are not stored; the agents keep them in
-their WAL (up to 8 h) and replay them. Check `docker compose logs --tail=50 prometheus`.
+their WAL (up to 8 h) and replay them. Check `docker compose logs --tail=50 prometheus`. Meanwhile the
+UPS graphs and #ups Grafana alerts are blind; the UPS host's own #ups messages still work.
 
 `scripts/healthcheck.sh` prints every failing check; `journalctl -t cointmu-healthcheck` shows what
 cron saw. Its state is in `state/healthcheck/` (one file per failing check that was posted).
@@ -255,18 +256,30 @@ cron saw. Its state is in `state/healthcheck/` (one file per failing check that 
 | Message | Meaning, first steps |
 |---|---|
 | ON BATTERY | Mains lost for 30 s. Check whether the outage is local (breaker, PDU) or campus-wide. Note the runtime in the message: nothing shuts down by itself (monitor-only), so a long outage needs a shutdown by hand ("LOW BATTERY") |
-| BACK ON MAINS | Power is back. The UPS recharges |
-| LOW BATTERY | **Nothing shuts down by itself (monitor-only)**: power can fail within minutes, taking the host and the telemetry VM down hard. If mains is not back, shut down by hand now: on the telemetry VM `docker compose stop`, then on the UPS host `shutdown -h now` (Proxmox stops the VM first) |
+| BACK ON MAINS | Power is back. The UPS recharges, and "UPS charge below 50 %" may still be firing; it resolves on its own |
+| LOW BATTERY | **Nothing shuts down by itself (monitor-only)**: power can fail within minutes, taking the host and the telemetry VM down hard. If mains is not back, shut down by hand now ("UPS runtime below 15 min" below) |
 | FORCED SHUTDOWN | Only once automatic shutdown is on: sent to hosts that monitor this UPS as secondaries; they shut down now |
 | SHUTTING DOWN | Only once automatic shutdown is on: this host is running its shutdown command. It may be the last message: the post is given up after about 4 s |
 | REPLACE BATTERY | The UPS failed its battery test. Order a battery. NUT repeats it every 12 h until the battery is replaced |
 | COMM LOST / COMM RESTORED | The UPS was unreachable for 60 s (USB cable, driver). `systemctl status 'nut-driver@*'` and `journalctl -u 'nut*' -n 50` on the host. While it lasts, nothing else is reported |
+
+**#ups from Grafana** (repeats at most every 12 h; one message when resolved):
+
+| Rule | Meaning, first steps |
+|---|---|
+| UPS on battery for 10 min | A long outage. Estimate from the runtime whether the host will last, and shut down non-essential guests by hand to stretch it |
+| UPS charge below 50 % | On battery: the charge is estimated from the battery voltage, which sags under load, so watch the runtime instead. Right after an outage: the UPS is recharging, no action |
+| UPS runtime below 15 min | Nothing shuts down by itself (monitor-only). Shut down cleanly by hand while there is time: on the telemetry VM `docker compose stop`, then on the UPS host `shutdown -h now` (Proxmox stops the VM first). If it fires while on mains, the battery is worn: test or replace it |
+| UPS unreadable | `upsc` fails on the host: driver crashed, USB cable, or upsd down. `upsc <ups>@localhost` and `journalctl -u 'nut*' -n 50` there |
+| UPS metrics stale | `ups-metrics.sh` or its timer stopped, so the graphs show old values. `systemctl status cointmu-ups-metrics.timer cointmu-ups-metrics.service` and `journalctl -u cointmu-ups-metrics -n 20` on the host (it names a wrong directory group or mode) |
+| UPS data missing | Nothing from the UPS host for 5 min: the host is down, Alloy stopped, the network is down, or the push is refused. "Logs are not arriving" below applies to the metrics push as well (`journalctl -u alloy` on the host: 401/403). After a power-fail shutdown it fires until the host is back. On a fresh deployment it fires until the host ships metrics |
 
 ### After the battery ran out (or a shutdown by hand)
 
 1. Did the UPS host come back, and the telemetry VM with it (it starts on boot)? Check in the Proxmox UI.
 2. On the VM: `docker compose ps`, then `scripts/healthcheck.sh`. After a hard power loss also
    `docker compose logs --tail=50 postgres` (crash recovery should say "database system is ready").
+3. In Grafana "UPS": data again, and charge rising. "UPS data missing" resolves once the host pushes.
 
 ### Silence a node that is down on purpose
 
@@ -540,6 +553,15 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
    ```
    `scripts/backup-config.sh` already covers the new htpasswd (all of `nginx/local/`). Prometheus
    data is not backed up (README.md, "Backups").
+4. **UPS metrics, dashboard and #ups alerts.** Add the host's metrics login ("On the telemetry VM",
+   metrics), then on the host: "Metrics collector" and the metrics part of "Alloy". Then on the VM:
+   ```bash
+   git pull
+   nano .env      # DISCORD_WEBHOOK_UPS=<Grafana's #ups webhook>; empty = off
+   docker compose up -d grafana
+   ```
+   Grafana fires "UPS data missing" until the host ships metrics, so do the host part first or set
+   the webhook only afterwards.
 
 ## Node logs (Loki + Grafana)
 
@@ -567,6 +589,12 @@ Alloy drops batches answered with 401, so add the new login before removing the 
    `LOKI_PUSH_USER=<host>-2` in `/etc/default/alloy`, `sudo systemctl restart alloy`.
 3. Check new lines arrive (Grafana, or `journalctl -u alloy`).
 4. `scripts/agent-cred.sh revoke <host>-1`
+
+The UPS host also has a **metrics login**, rotated the same way with the kind `metrics`:
+`scripts/agent-cred.sh add <host>-2 metrics`, the new password in `/etc/alloy/metrics-password`,
+`METRICS_PUSH_USER=<host>-2`, restart Alloy, check the "UPS" dashboard, then
+`scripts/agent-cred.sh revoke <host>-1 metrics`. The two logins are separate: a log login cannot
+write metrics, and the other way round.
 
 If a password leaked, revoke first and accept the gap: the node's lines between revoke and
 step 2 are lost (Grafana shows a gap; the node's own log files still have them).

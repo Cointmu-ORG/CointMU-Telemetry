@@ -1,0 +1,13 @@
+# /etc/systemd/system/cointmu-ups-metrics.timer on the UPS host. Alloy scrapes
+# the file every 15 s as well; "UPS metrics stale" fires when its content is
+# more than 60 s older than the scrape.
+[Unit]
+Description=Write UPS metrics every 15 s
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

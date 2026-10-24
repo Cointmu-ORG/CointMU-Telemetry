@@ -1,6 +1,6 @@
 // Grafana Alloy on the UPS host (a Proxmox node): ships the NUT daemons'
-// journal to Loki (job="ups") through the telemetry VM's nginx with its own
-// login.
+// journal to Loki (job="ups") and the UPS metrics from ups-metrics.sh to
+// Prometheus, both through the telemetry VM's nginx with their own logins.
 // Settings come from /etc/default/alloy (alloy.env.example). Needs
 // --stability.level=experimental for the Loki write-ahead log, as on the geth
 // nodes (agents/alloy/).
@@ -101,5 +101,58 @@ loki.write "telemetry" {
 	wal {
 		enabled         = true
 		max_segment_age = "24h"
+	}
+}
+
+// --- Metrics: ups.prom from ups-metrics.sh ---------------------------------
+
+// Only the textfile collector: none of the host's other metrics leave it.
+prometheus.exporter.unix "ups" {
+	set_collectors = ["textfile"]
+
+	textfile {
+		directory = coalesce(sys.env("UPS_TEXTFILE_DIR"), "/var/lib/cointmu-ups")
+	}
+}
+
+// job="ups" for every series; host comes from remote_write.
+discovery.relabel "ups" {
+	targets = prometheus.exporter.unix.ups.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "ups"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "ups"
+	}
+}
+
+prometheus.scrape "ups" {
+	targets         = discovery.relabel.ups.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.telemetry.receiver]
+}
+
+prometheus.remote_write "telemetry" {
+	endpoint {
+		// METRICS_PUSH_URL: https://<telemetry VM>/prometheus/api/v1/write
+		url = sys.env("METRICS_PUSH_URL")
+
+		// Its own login (scripts/agent-cred.sh add <name> metrics).
+		basic_auth {
+			username      = sys.env("METRICS_PUSH_USER")
+			password_file = "/etc/alloy/metrics-password"
+		}
+
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
 	}
 }

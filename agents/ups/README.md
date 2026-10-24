@@ -4,17 +4,19 @@ The UPS is attached to one Proxmox host and read there by NUT (Network UPS Tools
 `upsmon`). `upsmon` runs **monitor-only**: it reports every event and never shuts anything down,
 which is how the host behaved before. The telemetry VM runs on this same host, so it shares the UPS
 (README.md, "UPS monitoring", blind spot).
-The host reports the UPS two ways:
+The host reports the UPS three ways:
 
 ```
                     ┌─ A: upsmon → upssched (debounce) → ups-notify.sh ──HTTPS──▶ Discord #ups
-UPS ─USB─ NUT ──────┤
-  (UPS host)        └─ B: NUT journal ─▶ Alloy ──HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ──▶ Grafana (Explore)
+UPS ─USB─ NUT ──────┼─ B: NUT journal ─▶ Alloy ──HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ─┐
+  (UPS host)        └─ C: ups-metrics.sh (timer, 15 s) → ups.prom ─▶ Alloy ──HTTPS + login──▶       ├─▶ Grafana "UPS"
+                          textfile collector                nginx /prometheus/api/v1/write ──▶ Prometheus ┘   + alerts → #ups
 ```
 
 - **A** posts every power event straight from the host. It needs neither the telemetry VM nor
   Grafana, so it keeps working when the VM is down.
-- **B** keeps the event history (`{job="ups"}` in Grafana). It stops while the VM is down.
+- **B** and **C** give the event history and the graphs, plus Grafana alerts on thresholds and on
+  stale or missing data. They stop while the VM is down.
 
 | File (this folder) | Goes to, on the UPS host | Owner, mode |
 |---|---|---|
@@ -27,7 +29,10 @@ UPS ─USB─ NUT ──────┤
 | `config.alloy` | `/etc/alloy/config.alloy` | root:root 0644 |
 | `alloy.env.example` | `/etc/default/alloy`, filled in | root:root 0644 |
 | `certs/server.crt` from the VM | `/etc/alloy/telemetry.crt` | root:root 0644 |
-| the log password (`scripts/agent-cred.sh`) | `/etc/alloy/push-password` | root:alloy 0640 |
+| log and metrics passwords (`scripts/agent-cred.sh`) | `/etc/alloy/push-password`, `/etc/alloy/metrics-password` | root:alloy 0640 |
+| `ups-metrics.sh` | `/usr/local/lib/cointmu-ups/ups-metrics.sh` | root:root 0755 |
+| `cointmu-ups-metrics.service`, `.timer` | `/etc/systemd/system/` | root:root 0644 |
+| `cointmu-ups.tmpfiles.conf` | `/etc/tmpfiles.d/cointmu-ups.conf` | root:root 0644 |
 
 Why the webhook file belongs to `nut` and not root: upsmon runs NOTIFYCMD, and with it upssched and
 `ups-notify.sh`, as its unprivileged user (`RUN_AS_USER nut`). Only that system account (no login)
@@ -42,7 +47,7 @@ line or a log.
 - **Firewall.** These paths must be open; check both the campus firewall and pve-firewall if it is
   enabled:
   - A: outbound TCP 443 from `<UPS_HOST_IP>` to `discord.com`.
-  - B: `<UPS_HOST_IP>` to `<TELEMETRY_IP>:<HTTPS_PORT>`. The VM's `DOCKER-USER` rule must let
+  - B and C: `<UPS_HOST_IP>` to `<TELEMETRY_IP>:<HTTPS_PORT>`. The VM's `DOCKER-USER` rule must let
     that address in, either because it lies in `CAMPUS_SUBNET` or through an extra rule (README.md,
     "Firewall").
   - `<UPS_HOST_IP> 1;` in the VM's `nginx/local/agent-allow.conf`.
@@ -52,11 +57,19 @@ line or a log.
 Copy this folder to the UPS host first. "UPS" below is the name `upsc -l` prints (`ups` unless
 `/etc/nut/ups.conf` says otherwise); the driver runs as `nut-driver@<ups>.service`.
 
+**Order:** Alloy before the metrics collector, because Alloy's package creates the `alloy` group
+that the metrics directory needs. `ups-metrics.sh` refuses to run, with a message saying what to do,
+as long as the group or the directory is missing or wrong.
+
 ### On the telemetry VM
 
 ```bash
 scripts/agent-cred.sh add <host>-1            # log login: prints the password once
+scripts/agent-cred.sh add <host>-1 metrics    # metrics login: prints its password once
 echo '<UPS_HOST_IP> 1;' >> nginx/local/agent-allow.conf && docker compose exec proxy nginx -s reload
+# Grafana's #ups webhook (a different one from the host's):
+nano .env        # DISCORD_WEBHOOK_UPS=https://discord.com/api/webhooks/...
+docker compose up -d grafana
 ```
 
 ### Discord notifier (path A)
@@ -91,7 +104,7 @@ sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test      # a TEST message 
 journalctl -t cointmu-ups-notify -n 5 --no-pager                # "posted test"
 ```
 
-### Alloy (path B)
+### Alloy (paths B and C)
 
 Copy the VM's `certs/server.crt` over as well.
 
@@ -102,15 +115,35 @@ getent group alloy                                  # must print a line
 sudo install -m 644 config.alloy /etc/alloy/config.alloy
 sudo install -m 644 server.crt /etc/alloy/telemetry.crt
 read -rsp 'log push password: ' PW; echo
-printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password; unset PW
+printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password
+read -rsp 'metrics push password: ' PW; echo
+printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/metrics-password; unset PW
 sudo install -m 644 alloy.env.example /etc/default/alloy
-sudoedit /etc/default/alloy   # AGENT_HOST, UPS_NAME, LOKI_PUSH_URL, LOKI_PUSH_USER
+sudoedit /etc/default/alloy   # AGENT_HOST, UPS_NAME, both URLs and users
 sudo systemctl enable --now alloy
 journalctl -u alloy -n 50 --no-pager        # no "error sending batch", no 401/403
-curl -s 127.0.0.1:12345/metrics | grep -E '^loki_write_sent_entries_total'
+curl -s 127.0.0.1:12345/metrics | grep -E '^(loki_write_sent_entries_total|prometheus_remote_storage_samples_total)'
 ```
 
-Then in Grafana → Explore → Loki: `{job="ups"}` shows the host's NUT lines.
+### Metrics collector (path C)
+
+```bash
+# its own user, not in group alloy
+sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cointmu-ups
+sudo install -m 755 ups-metrics.sh /usr/local/lib/cointmu-ups/
+sudo install -m 644 cointmu-ups.tmpfiles.conf /etc/tmpfiles.d/cointmu-ups.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/cointmu-ups.conf
+sudo install -m 644 cointmu-ups-metrics.service cointmu-ups-metrics.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now cointmu-ups-metrics.timer
+sleep 20
+sudo -u alloy cat /var/lib/cointmu-ups/ups.prom     # MUST print ups_up ... 1 and the values
+stat -c '%U:%G %a %n' /var/lib/cointmu-ups /var/lib/cointmu-ups/ups.prom
+#   cointmu-ups:alloy 2750 /var/lib/cointmu-ups
+#   cointmu-ups:alloy 640  /var/lib/cointmu-ups/ups.prom
+systemd-analyze security cointmu-ups-metrics.service   # review; expect a low exposure score
+```
+
+Then open Grafana, dashboard "UPS". "UPS data missing" resolves within a minute of the first samples.
 
 ## What it sends
 
@@ -120,6 +153,14 @@ Then in Grafana → Explore → Loki: `{job="ups"}` shows the host's NUT lines.
   the driver unit. Labels: `job="ups"`, `host`, `ups`, `unit`. Addresses (upsd logs
   `user@<address>` for each client login) become `<ip>`, as on the geth nodes. The host's other units
   are not read.
+- **Metrics (C):** only the textfile collector. None of the host's other metrics leave it.
+  - `ups_battery_charge_percent`, `ups_battery_runtime_seconds`, their NUT low levels
+    `ups_battery_charge_low_percent` and `ups_battery_runtime_low_seconds` (only if the UPS reports
+    them), `ups_load_percent`, `ups_input_voltage_volts`, `ups_output_voltage_volts`
+  - `ups_status{flag}` 0/1 for each status flag (OL, OB, LB, RB, CHRG, ...), `ups_info{model,driver}`
+  - `ups_up` 0/1: 0 when `upsc` fails or the driver's data is stale; then nothing else
+  - `ups_scrape_timestamp_seconds`: when the file was written
+  - Labels: `job="ups"`, `host`, `ups`, `instance="ups"`
 
 ## Events and debounce (A)
 
@@ -158,10 +199,12 @@ command; the VMs are shut down after it.
   - the payloads
 
   About 2 minutes.
-- `agents/ups/check-ups.sh`: a throwaway copy of the stack. It checks:
-  - test journal lines through `config.alloy` and nginx into Loki: labels, redaction
-  - the metrics push endpoint: 2xx, 401, 403, 404, audit log
+- `agents/ups/check-ups.sh`: a throwaway copy of the stack plus a fake UPS host running
+  `ups-metrics.sh`. It checks:
+  - the owner/mode table above
+  - remote write and log push through nginx: 2xx, 401, 403, 404, audit log
+  - redaction, the dashboard queries, and the alert rules (healthy, Alloy stopped, timer stopped)
 
-  About 2 minutes; it never touches a running deployment.
+  About 4 minutes; it never touches a running deployment.
 
 Both run in CI (job `ups`).

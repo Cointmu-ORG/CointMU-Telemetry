@@ -1,9 +1,9 @@
-# Alert rules on the geth node logs, sent to #node-logs (policies.yml).
-# Every query skips host="redaction-check-*", the test lines that
-# agents/alloy/check-redaction.sh pushes. Literal "$" in this file would be
-# read as an environment variable.
+# Alert rules on the geth node logs, sent to #node-logs (policies.yml), and on
+# the UPS metrics (group ups below), sent to #ups. Every geth query skips
+# host="redaction-check-*", the test lines that agents/alloy/check-redaction.sh
+# pushes. Literal "$" in this file would be read as an environment variable.
 #
-# Each rule is A (Loki, instant query) -> B (last value per series) -> C
+# Each geth rule is A (Loki, instant query) -> B (last value per series) -> C
 # (threshold on B, the condition). The message shows B as the count.
 apiVersion: 1
 groups:
@@ -100,6 +100,195 @@ groups:
               queryType: instant
               expr: >-
                 sum(count_over_time({job="geth", host!~"redaction-check-.*"}[15m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+  # UPS metrics from the UPS host (agents/ups/), sent to #ups (policies.yml,
+  # label source=ups). The host posts every power event itself (on battery,
+  # back on mains, low battery, shutdown) within 30 s; these rules add only
+  # what needs a threshold or what the host cannot report about itself, so
+  # nothing is posted twice. Each rule is A (Prometheus, instant) -> B (last
+  # value per series) -> C (threshold on B); the message shows B.
+  - orgId: 1
+    name: ups
+    folder: UPS
+    interval: 1m
+    rules:
+      # A long outage: the host posted "ON BATTERY" already; this says the
+      # battery is now what keeps the host and the telemetry VM up.
+      - uid: ups-on-battery-long
+        title: UPS on battery for 10 min
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: "(1 = on battery)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'max by (host, ups) (ups_status{job="ups", flag="OB"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # The charge of this UPS (nutdrv_qx) is estimated from the battery
+      # voltage, which sags under load: it can drop below 50 % soon after the
+      # outage starts. Runtime (next rule) is the better signal.
+      - uid: ups-charge-low
+        title: UPS charge below 50 %
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: "% battery charge (limit 50)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'min by (host, ups) (ups_battery_charge_percent{job="ups"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [50] } }]
+
+      # The UPS reports no battery.runtime.low and upsmon runs monitor-only, so
+      # nothing shuts down by itself: 15 min leaves time to shut the telemetry
+      # VM and the host down by hand (RUNBOOK.md, "UPS runtime below 15 min")
+      # before the UPS's own low-battery flag.
+      - uid: ups-runtime-low
+        title: UPS runtime below 15 min
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: "min of runtime left (limit 15)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'min by (host, ups) (ups_battery_runtime_seconds{job="ups"}) / 60' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [15] } }]
+
+      # upsc fails on the host: upsd down, driver not connected or its data
+      # stale (USB cable, driver crash). The host's own "COMM LOST" covers the
+      # same from upsmon's side.
+      - uid: ups-unreadable
+        title: UPS unreadable
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: "(0 = upsc cannot read the UPS)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'min by (host, ups) (ups_up{job="ups"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      # Fresh scrapes of old content: ups-metrics.sh or its timer stopped, and
+      # Alloy keeps sending the last file (ups_up stays 1). The sample's own
+      # time minus the time written into it; during a network or Alloy outage
+      # the last sample only ages and the difference stays small, so only
+      # "UPS data missing" fires then. No data means OK for the same reason.
+      - uid: ups-metrics-stale
+        title: UPS metrics stale
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: "s between the scrape and the file's content (limit 60)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, ups) (timestamp(ups_scrape_timestamp_seconds{job="ups"})
+                - ups_scrape_timestamp_seconds{job="ups"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [60] } }]
+
+      # No UPS sample at all for 5 minutes: the UPS host, its Alloy, or the
+      # network between it and this VM is down (or this VM was, see
+      # README.md "Blind spot"). Also fires on a fresh deployment until the
+      # UPS host ships metrics. While Prometheus does not answer it keeps its
+      # last state; healthcheck.sh reports Prometheus itself to #infra.
+      - uid: ups-data-missing
+        title: UPS data missing
+        condition: C
+        for: 0m
+        noDataState: Alerting
+        execErrState: KeepLast
+        labels: { source: ups }
+        annotations:
+          value_meaning: 'UPS series in the last 5 min ("-": none arrived)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'count(last_over_time(ups_up{job="ups"}[5m]))' }
           - refId: B
             datasourceUid: __expr__
             model: { refId: B, type: reduce, expression: A, reducer: last }
