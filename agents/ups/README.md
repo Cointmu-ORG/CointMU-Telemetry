@@ -4,15 +4,17 @@ The UPS is attached to one Proxmox host and read there by NUT (Network UPS Tools
 `upsmon`). `upsmon` runs **monitor-only**: it reports every event and never shuts anything down,
 which is how the host behaved before. The telemetry VM runs on this same host, so it shares the UPS
 (README.md, "UPS monitoring", blind spot).
-The host posts the UPS's power events to Discord:
+The host reports the UPS two ways:
 
 ```
-UPS ─USB─ NUT ── A: upsmon → upssched (debounce) → ups-notify.sh ──HTTPS──▶ Discord #ups
-  (UPS host)
+                    ┌─ A: upsmon → upssched (debounce) → ups-notify.sh ──HTTPS──▶ Discord #ups
+UPS ─USB─ NUT ──────┤
+  (UPS host)        └─ B: NUT journal ─▶ Alloy ──HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ──▶ Grafana (Explore)
 ```
 
 - **A** posts every power event straight from the host. It needs neither the telemetry VM nor
   Grafana, so it keeps working when the VM is down.
+- **B** keeps the event history (`{job="ups"}` in Grafana). It stops while the VM is down.
 
 | File (this folder) | Goes to, on the UPS host | Owner, mode |
 |---|---|---|
@@ -22,9 +24,10 @@ UPS ─USB─ NUT ── A: upsmon → upssched (debounce) → ups-notify.sh ─
 | `upssched.conf.snippet` | `/etc/nut/upssched.conf` (replaces it) | root:nut 0640 |
 | `upsmon.conf.snippet` | lines merged into `/etc/nut/upsmon.conf` | unchanged (root:nut 0640) |
 | `upsd.users.snippet` | appended to `/etc/nut/upsd.users` | unchanged (root:nut 0640) |
+| `config.alloy` | `/etc/alloy/config.alloy` | root:root 0644 |
+| `alloy.env.example` | `/etc/default/alloy`, filled in | root:root 0644 |
+| `certs/server.crt` from the VM | `/etc/alloy/telemetry.crt` | root:root 0644 |
 | the log password (`scripts/agent-cred.sh`) | `/etc/alloy/push-password` | root:alloy 0640 |
-
-`config.alloy` and the metrics collector follow in later changes (paths B and C).
 
 Why the webhook file belongs to `nut` and not root: upsmon runs NOTIFYCMD, and with it upssched and
 `ups-notify.sh`, as its unprivileged user (`RUN_AS_USER nut`). Only that system account (no login)
@@ -39,11 +42,22 @@ line or a log.
 - **Firewall.** These paths must be open; check both the campus firewall and pve-firewall if it is
   enabled:
   - A: outbound TCP 443 from `<UPS_HOST_IP>` to `discord.com`.
+  - B: `<UPS_HOST_IP>` to `<TELEMETRY_IP>:<HTTPS_PORT>`. The VM's `DOCKER-USER` rule must let
+    that address in, either because it lies in `CAMPUS_SUBNET` or through an extra rule (README.md,
+    "Firewall").
+  - `<UPS_HOST_IP> 1;` in the VM's `nginx/local/agent-allow.conf`.
 
 ## Install
 
 Copy this folder to the UPS host first. "UPS" below is the name `upsc -l` prints (`ups` unless
 `/etc/nut/ups.conf` says otherwise); the driver runs as `nut-driver@<ups>.service`.
+
+### On the telemetry VM
+
+```bash
+scripts/agent-cred.sh add <host>-1            # log login: prints the password once
+echo '<UPS_HOST_IP> 1;' >> nginx/local/agent-allow.conf && docker compose exec proxy nginx -s reload
+```
 
 ### Discord notifier (path A)
 
@@ -76,8 +90,23 @@ journalctl -u nut-monitor -n 20 --no-pager   # "Login on UPS [ups@localhost]", n
 sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test      # a TEST message in #ups
 journalctl -t cointmu-ups-notify -n 5 --no-pager                # "posted test"
 ```
+
+### Alloy (path B)
+
+Copy the VM's `certs/server.crt` over as well.
+
+```bash
+# Alloy, pinned, exactly as agents/alloy/README.md step 1 (apt repository,
+# alloy=1.21.0-1, apt-mark hold). This creates the alloy user and group.
+getent group alloy                                  # must print a line
+sudo install -m 644 config.alloy /etc/alloy/config.alloy
+sudo install -m 644 server.crt /etc/alloy/telemetry.crt
+read -rsp 'log push password: ' PW; echo
 printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password; unset PW
+sudo install -m 644 alloy.env.example /etc/default/alloy
 sudoedit /etc/default/alloy   # AGENT_HOST, UPS_NAME, LOKI_PUSH_URL, LOKI_PUSH_USER
+sudo systemctl enable --now alloy
+journalctl -u alloy -n 50 --no-pager        # no "error sending batch", no 401/403
 curl -s 127.0.0.1:12345/metrics | grep -E '^loki_write_sent_entries_total'
 ```
 
@@ -87,6 +116,10 @@ Then in Grafana → Explore → Loki: `{job="ups"}` shows the host's NUT lines.
 
 - **Discord (A):** `**<EVENT>** <ups> on <HOST_LABEL>, charge N %, runtime M min` and one line of
   explanation. Nothing else, and `allowed_mentions` is empty, so no message can ping anyone.
+- **Logs (B):** the journal of `nut-server`, `nut-monitor` (upsmon, upssched and `ups-notify.sh`) and
+  the driver unit. Labels: `job="ups"`, `host`, `ups`, `unit`. Addresses (upsd logs
+  `user@<address>` for each client login) become `<ip>`, as on the geth nodes. The host's other units
+  are not read.
 
 ## Events and debounce (A)
 
@@ -125,5 +158,8 @@ command; the VMs are shut down after it.
   - the payloads
 
   About 2 minutes.
+- `agents/ups/check-ups.sh`: a throwaway copy of the stack. It feeds test journal lines through
+  `config.alloy` and nginx into Loki, and checks the labels and the redaction. About 2 minutes; it
+  never touches a running deployment.
 
-It runs in CI (job `ups`).
+Both run in CI (job `ups`).

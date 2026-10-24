@@ -11,7 +11,7 @@ dashboard for admins. Agents on the nodes ([agents/alloy/](agents/alloy/README.m
 same HTTPS port with their own logins; the desktop app never uses that path.
 
 It also watches the **UPS** on one Proxmox host ("UPS monitoring" below): the host posts power
-events to Discord itself.
+events to Discord itself and ships the UPS daemon's journal to Loki.
 
 ```
 CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ──▶ PostgreSQL
@@ -20,7 +20,8 @@ CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ─
 geth node ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ◀── Grafana ◀── nginx /grafana/
   IPs/node IDs redacted, WAL       agent allowlist, rate limit    internal network     admin allowlist
 
-UPS host ─ upsmon → upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
+UPS host ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push   (NUT journal, addresses redacted)
+  └─ upsmon → upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
 ```
 
 ## Why GlitchTip, not self-hosted Sentry
@@ -56,7 +57,7 @@ in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook 
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS notifier end to end (`agents/ups/check-notify.sh`) |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) only to `nginx/local/agent-allow.conf` plus a per-agent login. The rest of Loki's API is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
@@ -313,13 +314,18 @@ and details are in [agents/ups/README.md](agents/ups/README.md).
 | Path | What | Where it shows | Needs the VM |
 |---|---|---|---|
 | A | upsmon → upssched (debounce) → `ups-notify.sh`, straight to Discord | #ups: on battery (after 30 s), back on mains, low battery, replace battery, comm lost (after 60 s) and restored; forced shutdown and shutting down once automatic shutdown is turned on | no |
+| B | NUT's journal through Alloy into Loki (`job="ups"`, addresses redacted) | Grafana dashboard "UPS", log panel | yes |
 
 **Blind spot.** The telemetry VM runs on the UPS host itself.
-- **During an outage** A keeps posting from the host. It needs neither the VM nor Grafana, only
-  the campus uplink to discord.com, so it stops if the switch or uplink loses power first.
-- **When the battery runs out**, the host and the VM lose power at the same moment; nothing shuts
-  down cleanly first (monitor-only). The last message is "LOW BATTERY" from the host, if the UPS
-  raises it in time. Shutting down by hand on that message is the only clean way out (RUNBOOK.md).
+- **During an outage** the host and the VM are both on battery, so A and B keep working. B goes
+  from the host to the VM over the host's own bridge. A needs the campus uplink to discord.com, so
+  it stops if the switch or uplink loses power first.
+- **When the battery runs out**, the host and the VM lose power at the same moment, and B stops
+  with them; nothing shuts down cleanly first (monitor-only). The last message is "LOW BATTERY"
+  from the host, if the UPS raises it in time. Shutting down by hand on that message is the only
+  clean way out (RUNBOOK.md).
+- **Afterwards**, the gap stays in the logs. The Alloy WAL replays what the host collected while
+  the VM was unreachable, up to 24 h back. Nothing is collected while the host itself is off.
 - **If automatic shutdown is turned on later** (upsmon.conf.snippet), A's shutdown post is best
   effort: it is given up after about 4 s, so that `FINALDELAY` (10 s) is never exceeded. If
   Discord is slow at that moment, the "SHUTTING DOWN" message is lost.
