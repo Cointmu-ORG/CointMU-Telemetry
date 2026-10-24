@@ -1,0 +1,11 @@
+# Journal lines for check-ups.sh, one per line: <systemd unit> <syslog identifier> <message>.
+# Addresses are documentation ranges (RFC 5737, RFC 3849). Every nut-* line must
+# arrive with job="ups" and no address left; the pveproxy line must not arrive.
+nut-server.service upsd User monuser@192.0.2.10 logged into UPS [check]
+nut-server.service upsd User monuser@2001:db8::5 logged into UPS [check]
+nut-server.service upsd Connected to UPS [check]: dummy-ups-check
+nut-monitor.service upsmon UPS check@localhost on battery
+nut-monitor.service upsmon Login on UPS [check@198.51.100.7] failed - got [ERR ACCESS-DENIED]
+nut-monitor.service cointmu-ups-notify posted onbatt
+nut-driver@check.service dummy-ups Communications with UPS check lost
+pveproxy.service pveproxy proxy detected vanished client connection from 203.0.113.9

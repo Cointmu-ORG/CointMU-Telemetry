@@ -509,6 +509,8 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
 
 1. **Discord from the UPS host (path A).** Nothing changes on the VM. On the UPS host: "Discord
    notifier", which also starts `upsmon`, monitor-only.
+2. **UPS journal in Loki (path B).** Nothing to restart on the VM. Add the host's log login and
+   address there ("On the telemetry VM", logs), then on the host: "Alloy".
 
 ## Node logs (Loki + Grafana)
 

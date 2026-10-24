@@ -1,0 +1,105 @@
+// Grafana Alloy on the UPS host (a Proxmox node): ships the NUT daemons'
+// journal to Loki (job="ups") through the telemetry VM's nginx with its own
+// login.
+// Settings come from /etc/default/alloy (alloy.env.example). Needs
+// --stability.level=experimental for the Loki write-ahead log, as on the geth
+// nodes (agents/alloy/).
+
+// --- Logs: the NUT units' journal ------------------------------------------
+// "matches" is AND-only in this Alloy version, so one source per unit. The
+// unit names default to NUT 2.8 on Debian: the driver runs as
+// nut-driver@<UPS_NAME>.service (nut-driver-enumerator).
+// UPS_JOURNAL_PATH is empty (the system journal) except in check-ups.sh.
+
+loki.source.journal "nut_server" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_SERVER_UNIT"), "nut-server.service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+// upsmon, and upssched and ups-notify.sh, which upsmon starts.
+loki.source.journal "nut_monitor" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_MONITOR_UNIT"), "nut-monitor.service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+loki.source.journal "nut_driver" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_DRIVER_UNIT"), "nut-driver@" + sys.env("UPS_NAME") + ".service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+// unit from the systemd unit: nut-driver@myups.service -> nut-driver@myups.
+loki.relabel "nut" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		regex         = "(.+)\\.service"
+		target_label  = "unit"
+	}
+}
+
+loki.process "ups" {
+	stage.static_labels {
+		values = {ups = sys.env("UPS_NAME")}
+	}
+
+	// upsd logs client logins as user@<address>, upsmon names the upsd it
+	// talks to. Same expressions as the geth pipeline (agents/alloy/).
+	stage.replace {
+		expression = "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b"
+		replace    = "<ip>"
+	}
+
+	// ponytail: IPv6 heuristic copied from agents/alloy/config.alloy.
+	stage.replace {
+		expression = "((?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{0,4}::(?:[0-9a-fA-F]{1,4}:?){0,6})"
+		replace    = "<ip>"
+	}
+
+	forward_to = [loki.write.telemetry.receiver]
+}
+
+loki.write "telemetry" {
+	endpoint {
+		// LOKI_PUSH_URL: https://<telemetry VM>/loki/api/v1/push
+		url = sys.env("LOKI_PUSH_URL")
+
+		basic_auth {
+			username      = sys.env("LOKI_PUSH_USER")
+			password_file = "/etc/alloy/push-password"
+		}
+
+		// The VM's certificate is the only trust anchor. Never set
+		// insecure_skip_verify.
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+
+		// As on the geth nodes: retry 429/5xx forever from the WAL, keep the
+		// in-memory queue small (agents/alloy/README.md, "Disk buffer").
+		max_backoff_retries = 0
+		max_backoff_period  = "5m"
+
+		queue_config {
+			capacity = "2MiB"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
+	}
+
+	wal {
+		enabled         = true
+		max_segment_age = "24h"
+	}
+}

@@ -81,8 +81,10 @@ jobs:
         run: |
           image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' agents/alloy/check-redaction.sh)
           test -n "$image"
-          docker run --rm -v "$PWD/agents/alloy:/alloy:ro" --entrypoint /bin/alloy "$image" \
-            fmt --test /alloy/config.alloy
+          for config in agents/alloy/config.alloy agents/ups/config.alloy; do
+            docker run --rm -v "$PWD/$config:/config.alloy:ro" --entrypoint /bin/alloy "$image" \
+              fmt --test /config.alloy
+          done
 
   # The agent config against a real Loki, plus Grafana starting from its
   # provisioning with no alert webhook set.
@@ -153,8 +155,9 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # The UPS host's Discord notifier (path A) end to end: real NUT daemons on
-  # a fake UPS in a throwaway container, against a local listener.
+  # The UPS paths end to end, each in its own throwaway containers: the Discord
+  # notifier on real NUT daemons against a local listener (path A), and the
+  # host agent's logs through nginx into Loki (path B, own compose project).
   ups:
     name: ups
     runs-on: ubuntu-latest
@@ -162,3 +165,5 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - run: agents/ups/check-notify.sh
+
+      - run: agents/ups/check-ups.sh
