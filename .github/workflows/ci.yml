@@ -166,6 +166,47 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  # GlitchTip and the proxy from a clean start, as a deployment runs them,
+  # until every health check passes. The proxy's own check goes through nginx
+  # to GlitchTip, so it also fails on a Host header that ALLOWED_HOSTS rejects.
+  stack:
+    name: stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Dummy values only. Every DISCORD_WEBHOOK_* stays empty: CI never posts.
+      # BIND_IP must be an address of the runner; GLITCHTIP_HOST keeps the
+      # placeholder on purpose, so ALLOWED_HOSTS holds no loopback address
+      # that a deployment would not have either.
+      - name: Throwaway .env, certificate and nginx/local
+        run: |
+          sed -e 's/^TLS_GID=.*/TLS_GID=12345/' -e 's/^BIND_IP=.*/BIND_IP=127.0.0.1/' \
+            -e "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" \
+            -e "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)/" \
+            .env.example > .env
+          mkdir certs
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
+            -subj /CN=ci -keyout certs/server.key -out certs/server.crt 2>/dev/null
+          chmod 644 certs/server.key
+          for example in nginx/local/*.example; do cp "$example" "${example%.example}"; done
+          : > nginx/local/loki-agents.htpasswd
+          : > nginx/local/metrics-agents.htpasswd
+
+      # GlitchTip's first start runs all migrations, hence the long timeout.
+      - name: postgres, web and proxy become healthy
+        run: |
+          if ! docker compose up -d --wait --wait-timeout 300 proxy; then
+            docker compose ps
+            docker compose logs --tail 50 web proxy
+            exit 1
+          fi
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   # The UPS paths end to end, each in its own throwaway containers: the Discord
   # notifier on real NUT daemons against a local listener (path A), and the
   # host agent through nginx into Loki and Prometheus with the alert rules'

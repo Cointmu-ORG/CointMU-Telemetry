@@ -230,8 +230,11 @@ services:
       web: { condition: service_healthy }
     mem_limit: 64m
     pids_limit: 50
+    # Host "localhost": nginx passes the Host header on to GlitchTip, whose
+    # ALLOWED_HOSTS has GLITCHTIP_HOST and localhost but not 127.0.0.1 (400).
+    # The URL stays on 127.0.0.1 because nginx listens on IPv4 only.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--no-check-certificate", "https://127.0.0.1:8443/_health/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--no-check-certificate", "--header", "Host: localhost", "https://127.0.0.1:8443/_health/"]
       interval: 15s
       timeout: 5s
       retries: 5
