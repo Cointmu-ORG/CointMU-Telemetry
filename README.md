@@ -143,19 +143,22 @@ Release builds made without these variables have reporting off.
 
 Allow HTTPS only from the campus LAN (and allowed Tailscale addresses) and SSH only from the
 admins' subnet. Docker's published ports bypass ufw's normal rules, so the HTTPS rule goes in the
-`DOCKER-USER` chain (`firewall/ufw-after.rules.snippet`). The snippet has three placeholders,
-`<CAMPUS_SUBNET>`, `<TAILSCALE_SUBNET>` and `<HTTPS_PORT>`; the port is taken from `.env` so the
-rule guards the port that is actually published:
+`DOCKER-USER` chain (`firewall/ufw-after.rules.snippet`). The snippet has four placeholders,
+`<CAMPUS_SUBNET>`, `<TAILSCALE_SUBNET>`, `<BIND_IP>` and `<HTTPS_PORT>`; address and port are taken
+from `.env` so the rule guards what is actually published, and only that: the containers' own
+outgoing HTTPS (the Discord alerts) passes the same chain:
 
 ```bash
 sudo ufw default deny incoming
 sudo ufw allow from <ADMIN_SUBNET> to any port 22 proto tcp
 CAMPUS_SUBNET='<CAMPUS_SUBNET>'   # the real campus LAN, e.g. 10.0.0.0/16
 TAILSCALE_SUBNET=''               # tailnet IPs allowed in, comma-separated, e.g. 100.101.102.103/32; empty = none
+BIND_IP=$(sed -n 's/^BIND_IP=//p' .env)
 HTTPS_PORT=$(sed -n 's/^HTTPS_PORT=//p' .env)
 if [ -n "$TAILSCALE_SUBNET" ]; then TAILSCALE_RULE="s|<TAILSCALE_SUBNET>|$TAILSCALE_SUBNET|g"
 else TAILSCALE_RULE='/<TAILSCALE_SUBNET>/d'; fi
-sed -e "s|<CAMPUS_SUBNET>|$CAMPUS_SUBNET|g" -e "s|<HTTPS_PORT>|${HTTPS_PORT:-443}|g" -e "$TAILSCALE_RULE" \
+sed -e "s|<CAMPUS_SUBNET>|$CAMPUS_SUBNET|g" -e "s|<BIND_IP>|$BIND_IP|g" -e "s|<HTTPS_PORT>|${HTTPS_PORT:-443}|g" \
+  -e "$TAILSCALE_RULE" \
   firewall/ufw-after.rules.snippet | sudo tee -a /etc/ufw/after.rules >/dev/null
 sudo ufw enable && sudo ufw reload && sudo systemctl restart docker
 ```
@@ -167,8 +170,8 @@ subnet router. A subnet router SNATs by default, so their requests arrive from t
 campus address. Allow that address instead, or run the router with
 `--snat-subnet-routes=false` so the `100.x` addresses arrive and the rules above apply.
 
-If you change `HTTPS_PORT` later, change every `--ctorigdstport` value in
-`/etc/ufw/after.rules` to match, or the new port is open to every network.
+If you change `BIND_IP` or `HTTPS_PORT` later, change every `--ctorigdst` or `--ctorigdstport`
+value in `/etc/ufw/after.rules` to match, or the new address or port is open to every network.
 
 The proxy is also bound to `BIND_IP` only, so it never listens on other interfaces.
 Verify from a machine outside the LAN that `HTTPS_PORT` times out, and from a campus
