@@ -77,7 +77,7 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/*.sh nginx/require-local.sh agents/alloy/check-redaction.sh
+          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh agents/alloy/check-redaction.sh
           agents/ups/*.sh agents/ups/testdata/*.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
@@ -206,6 +206,17 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  # firewall/ufw-after.rules.snippet loaded into DOCKER-USER on the runner, as
+  # README.md applies it: the published port answers the campus subnet only,
+  # and containers still reach HTTPS servers outside (the Discord alerts).
+  firewall:
+    name: firewall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: sudo firewall/check-docker-user.sh
 
   # The UPS paths end to end, each in its own throwaway containers: the Discord
   # notifier on real NUT daemons against a local listener (path A), and the
