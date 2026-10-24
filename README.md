@@ -10,12 +10,17 @@ The same VM also collects the logs of the geth node **servers** (bootnode, miner
 dashboard for admins. Agents on the nodes ([agents/alloy/](agents/alloy/README.md)) push over the
 same HTTPS port with their own logins; the desktop app never uses that path.
 
+It also watches the **UPS** on one Proxmox host ("UPS monitoring" below): the host posts power
+events to Discord itself.
+
 ```
 CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ──▶ PostgreSQL
   campus LAN only (firewall + bind)   rate limit     IP + PII scrub
 
 geth node ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ◀── Grafana ◀── nginx /grafana/
   IPs/node IDs redacted, WAL       agent allowlist, rate limit    internal network     admin allowlist
+
+UPS host ─ upsmon → upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
 ```
 
 ## Why GlitchTip, not self-hosted Sentry
@@ -51,7 +56,7 @@ in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook 
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, and a clean Grafana start |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` in the pinned image, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS notifier end to end (`agents/ups/check-notify.sh`) |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) only to `nginx/local/agent-allow.conf` plus a per-agent login. The rest of Loki's API is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
@@ -60,7 +65,7 @@ in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook 
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
-| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM ("Alerts" below) |
+| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, and #ups for the UPS host's power events ("Alerts" below) |
 | Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
@@ -212,6 +217,7 @@ All alerts go to one Discord server, one channel per source:
 | #app-errors | GlitchTip: each new issue of the desktop project, once | `DISCORD_WEBHOOK_APP_ERRORS` | `scripts/init-project.sh <email>` (re-run after a change) |
 | #node-logs | Grafana alert rules on the geth node logs | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
 | #infra | `scripts/healthcheck.sh` from cron: VM health, independent of Grafana and Loki | `DISCORD_WEBHOOK_INFRA` | read on every run |
+| #ups | The UPS host itself: power events ("UPS monitoring") | its own webhook, on the host only | read on every event |
 
 **Setup.** One webhook per channel: in Discord, Edit Channel → Integrations → Webhooks → New
 Webhook → Copy Webhook URL, then put it in `.env` under that channel's variable.
@@ -236,6 +242,7 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
     - **Loki unreachable or no logs:** Loki query error, or nothing from any host for 15 min; pending
       for 5 min first. It also fires on a fresh deployment until the first agent ships logs.
   - A firing alert repeats at most every 12 h, and its resolution is posted once.
+- **#ups (host):** the event, the UPS, the host label, charge and runtime.
 - **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
   - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
     no successful off-VM backup copy in 26 h; certificate valid for less than 60 days.
@@ -244,7 +251,8 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
   the VM's own campus address in the dashboard links.
 - **No message can ping anyone.** GlitchTip's message text is fixed, and Discord takes mentions only
   from that text, not from embeds. Grafana puts its message into the embed.
-  `healthcheck.sh` sends `allowed_mentions: none` and strips `@`, `<` and `>`.
+  `healthcheck.sh` and the UPS host's `ups-notify.sh` send `allowed_mentions: none` and strip `@`,
+  `<` and `>`.
 
 Schedule the health check. It runs as the admin user, who must be in the `docker` group;
 `journalctl -t cointmu-healthcheck` shows its output:
@@ -288,12 +296,33 @@ DISK_MAX_PERCENT=1 scripts/healthcheck.sh; scripts/healthcheck.sh   # "FAIL disk
 ```
 
 For #node-logs, open Grafana → Alerting → Contact points → `discord-node-logs` → Test (as an org
-Admin).
+Admin). The UPS host tests its own #ups webhook with
+`sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (agents/ups/README.md).
 
-**Blind spot.** All three senders run on this VM. If the whole VM is down or loses its network,
-nothing alerts. This is accepted for now. A possible later addition is an external heartbeat, e.g. a
+**Blind spot.** GlitchTip, Grafana and `healthcheck.sh` all run on this VM. If the whole VM is down
+or loses its network, nothing alerts. This is accepted for now. A possible later addition is an external heartbeat, e.g. a
 cron job on a node server that checks `https://<VM>/_health/` and posts to #infra when it fails; it
 is not set up.
+
+## UPS monitoring
+
+The UPS hangs on one Proxmox host, which runs NUT (`upsmon` monitor-only: it reports, it never
+shuts anything down). The telemetry VM runs on that same host, so it is on the same UPS. Install
+and details are in [agents/ups/README.md](agents/ups/README.md).
+
+| Path | What | Where it shows | Needs the VM |
+|---|---|---|---|
+| A | upsmon → upssched (debounce) → `ups-notify.sh`, straight to Discord | #ups: on battery (after 30 s), back on mains, low battery, replace battery, comm lost (after 60 s) and restored; forced shutdown and shutting down once automatic shutdown is turned on | no |
+
+**Blind spot.** The telemetry VM runs on the UPS host itself.
+- **During an outage** A keeps posting from the host. It needs neither the VM nor Grafana, only
+  the campus uplink to discord.com, so it stops if the switch or uplink loses power first.
+- **When the battery runs out**, the host and the VM lose power at the same moment; nothing shuts
+  down cleanly first (monitor-only). The last message is "LOW BATTERY" from the host, if the UPS
+  raises it in time. Shutting down by hand on that message is the only clean way out (RUNBOOK.md).
+- **If automatic shutdown is turned on later** (upsmon.conf.snippet), A's shutdown post is best
+  effort: it is given up after about 4 s, so that `FINALDELAY` (10 s) is never exceeded. If
+  Discord is slow at that moment, the "SHUTTING DOWN" message is lost.
 
 ## Operations
 
@@ -302,4 +331,5 @@ See [RUNBOOK.md](RUNBOOK.md): key rotation and its release order, certificate re
 patching, restore (with the quarterly restore drill and a rebuild on a new VM), disk full, upgrades,
 "reports are not arriving" (including rate limits behind NAT), the admin access audit, what each
 alert means, and for the log stack: adding a node agent, rotating agent logins, retention, Grafana
-users and the break-glass admin, and "logs are not arriving".
+users and the break-glass admin, and "logs are not arriving"; for the UPS: the host's messages,
+rotating its webhook, and "Moving to UPS monitoring".

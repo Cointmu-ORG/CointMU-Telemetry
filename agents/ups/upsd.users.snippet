@@ -1,0 +1,7 @@
+# Appended to /etc/nut/upsd.users on the UPS host (agents/ups/README.md fills
+# in <UPSMON_PASSWORD>, the same value as in the MONITOR line of
+# upsmon.conf.snippet). The login upsmon uses on this host's own upsd.
+# "secondary": monitor only, it cannot set forced shutdown (FSD).
+[upsmon-local]
+  password = <UPSMON_PASSWORD>
+  upsmon secondary

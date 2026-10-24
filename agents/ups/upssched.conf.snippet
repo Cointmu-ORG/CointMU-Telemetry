@@ -1,0 +1,28 @@
+# /etc/nut/upssched.conf on the UPS host (agents/ups/README.md). Replaces the
+# package's file; upssched runs as the nut user, started by upsmon.
+#
+# Debounce: an event that may only be a blip starts a timer, and only an
+# expired timer posts. CANCEL-TIMER <timer> <cmd> runs <cmd> only when no such
+# timer is pending, i.e. the first message was posted. So a power blip or a
+# short USB hiccup posts nothing, and a real outage posts once when it starts
+# and once when it ends. upsmon ignores the first OL at startup, so a restart
+# posts nothing either.
+CMDSCRIPT /usr/local/lib/cointmu-ups/ups-notify.sh
+PIPEFN /run/nut/upssched.pipe
+LOCKFN /run/nut/upssched.lock
+
+# 30 s on battery before posting: covers transfers and brownouts.
+AT ONBATT * START-TIMER onbatt 30
+AT ONLINE * CANCEL-TIMER onbatt online
+
+# 60 s without contact to the UPS (driver or USB) before posting.
+AT COMMBAD * START-TIMER commbad 60
+AT COMMOK * CANCEL-TIMER commbad commok
+
+# No debounce: rare, and the shutdown ones cannot wait.
+AT LOWBATT * EXECUTE lowbatt
+AT FSD * EXECUTE fsd
+AT SHUTDOWN * EXECUTE shutdown
+# upsmon repeats this every RBWARNTIME (12 h by default) until the battery is
+# replaced.
+AT REPLBATT * EXECUTE replbatt
