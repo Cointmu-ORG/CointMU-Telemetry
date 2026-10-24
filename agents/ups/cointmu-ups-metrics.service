@@ -1,0 +1,42 @@
+# /etc/systemd/system/cointmu-ups-metrics.service on the UPS host
+# (agents/ups/README.md). Started every 15 s by cointmu-ups-metrics.timer.
+# A fixed system user, not DynamicUser: a dynamic user's state lives under
+# /var/lib/private (0700 root), out of the Alloy agent's reach. The directory
+# comes from cointmu-ups.tmpfiles.conf, not StateDirectory=, which would chown
+# it back to this user's group on every start.
+[Unit]
+Description=Write UPS metrics for the Alloy textfile collector
+After=nut-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cointmu-ups/ups-metrics.sh
+User=cointmu-ups
+Group=cointmu-ups
+UMask=0027
+# Only upsd on localhost, only its output directory.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cointmu-ups
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=localhost
+IPAddressDeny=any
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=32M
+TimeoutStartSec=10

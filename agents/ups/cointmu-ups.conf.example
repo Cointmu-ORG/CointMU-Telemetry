@@ -1,5 +1,5 @@
 # Copy to /etc/cointmu-ups/cointmu-ups.conf on the UPS host (root:root 0644,
-# no secrets here). Read by ups-notify.sh.
+# no secrets here). Read by ups-notify.sh and ups-metrics.sh.
 
 # The UPS as upsc names it: upsc -l lists the names, add @localhost.
 UPS=ups@localhost

@@ -1,5 +1,6 @@
 # What a #node-logs message contains: the rule, the host, a count and a link to
-# the dashboard on the campus LAN. Never log lines, label dumps or silence
+# the dashboard on the campus LAN. A #ups message: the rule, host and UPS, the
+# value and the UPS dashboard link. Never log lines, label dumps or silence
 # links: the default Grafana template would include all labels and annotations.
 # Literal "$" in this file would be read as an environment variable.
 apiVersion: 1
@@ -12,3 +13,7 @@ templates:
       {{ define "cointmu.message" }}{{ range .Alerts }}host: {{ or .Labels.host "all hosts" }}
       {{ if eq .Status "firing" }}count: {{ with .Values.B }}{{ if ge . 0.0 }}{{ printf "%.0f" . }}{{ else }}-{{ end }}{{ else }}-{{ end }} {{ .Annotations.count_meaning }}
       {{ end }}{{ end }}dashboard: {{ .ExternalURL }}d/geth-logs{{ with .CommonLabels.host }}?var-host={{ . }}{{ end }}{{ end }}
+
+      {{ define "cointmu.ups_message" }}{{ range .Alerts }}host: {{ or .Labels.host "all hosts" }}{{ with .Labels.ups }}, ups: {{ . }}{{ end }}
+      {{ if eq .Status "firing" }}value: {{ with .Values.B }}{{ printf "%.0f" . }}{{ else }}-{{ end }} {{ .Annotations.value_meaning }}
+      {{ end }}{{ end }}dashboard: {{ .ExternalURL }}d/ups{{ with .CommonLabels.host }}?var-host={{ . }}{{ end }}{{ end }}

@@ -97,7 +97,8 @@ jobs:
           done
 
   # The agent config against a real Loki, plus Grafana starting from its
-  # provisioning (Loki and Prometheus data sources) with no alert webhook set.
+  # provisioning (Loki and Prometheus data sources, both rule groups) with no
+  # alert webhook set.
   redaction:
     name: redaction
     runs-on: ubuntu-latest
@@ -167,8 +168,8 @@ jobs:
 
   # The UPS paths end to end, each in its own throwaway containers: the Discord
   # notifier on real NUT daemons against a local listener (path A), and the
-  # host agent's logs through nginx into Loki plus the metrics push endpoint
-  # (paths B and C, own compose project).
+  # host agent through nginx into Loki and Prometheus with the alert rules'
+  # expressions (paths B and C, own compose project).
   ups:
     name: ups
     runs-on: ubuntu-latest

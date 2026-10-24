@@ -170,6 +170,8 @@ services:
       # Grafana refuses an empty Discord URL, so "off" (empty in .env) becomes
       # an address on the reserved .invalid domain that can never resolve.
       DISCORD_WEBHOOK_NODE_LOGS: ${DISCORD_WEBHOOK_NODE_LOGS:-https://discord.invalid/webhook-not-configured}
+      # #ups webhook (the Grafana one; the UPS host has its own), same fallback.
+      DISCORD_WEBHOOK_UPS: ${DISCORD_WEBHOOK_UPS:-https://discord.invalid/webhook-not-configured}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
