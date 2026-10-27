@@ -402,6 +402,9 @@ docker compose pull loki prometheus grafana && docker compose up -d loki prometh
 docker compose ps prometheus            # healthy
 ```
 
+`healthcheck.sh` gives each restarted container 15 minutes to become ready before #infra hears about
+it ("starting", Loki's `/ready`); a container that is not running still posts at once.
+
 Loki keeps its data in `loki-data`, and Prometheus in `prometheus-data`. A Prometheus restart is a gap
 of a few seconds: the agents buffer and replay it. A Grafana major upgrade migrates its SQLite database
 on start. For a Prometheus **major** upgrade (3 → 4), read its migration guide first.

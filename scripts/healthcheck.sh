@@ -5,7 +5,10 @@
 # so it still reports when they are down. Checks:
 #   disk      every filesystem holding /, this folder or Docker's data root
 #   services  every compose service running, and healthy where it has a
-#             healthcheck; Loki through /ready from the grafana container
+#             healthcheck; Loki through /ready from the grafana container.
+#             For 15 minutes after a container starts (an upgrade or a
+#             restart), "starting" or Loki not ready yet does not count;
+#             not running or unhealthy always counts at once
 #   backup    state/backup-offsite.ok (touched by the backup cron line after
 #             the copy left the VM) younger than 26 hours
 #   cert      certificate expires in 60 days or more (scripts/gen-cert.sh status)
@@ -25,6 +28,8 @@ readonly BACKUP_STAMP=state/backup-offsite.ok
 readonly DISK_MAX_PERCENT="${DISK_MAX_PERCENT:-85}"
 readonly BACKUP_MAX_AGE_HOURS=26
 readonly CERT_MIN_DAYS=60
+# Loki can take minutes to report ready after an upgrade or restart.
+readonly STARTUP_GRACE_SECONDS=900
 readonly POST_TIMEOUT_SECONDS=10
 readonly SECONDS_PER_HOUR=3600
 readonly WEBHOOK_PATTERN='^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$'
@@ -44,6 +49,16 @@ check_disk() {
   return 1
 }
 
+# $1 service; succeeds if its container started less than
+# STARTUP_GRACE_SECONDS ago.
+in_startup_grace() {
+  local container started
+  container=$(docker compose ps -q "$1" 2>/dev/null) || return 1
+  [[ -n "$container" ]] || return 1
+  started=$(docker inspect -f '{{.State.StartedAt}}' "$container" 2>/dev/null) || return 1
+  (( $(date +%s) - $(date -d "$started" +%s) < STARTUP_GRACE_SECONDS ))
+}
+
 check_services() {
   local service state health failed=""
   for service in $(docker compose config --services); do
@@ -52,8 +67,12 @@ check_services() {
     if [[ "$state" != running ]]; then
       failed+="$service ${state:-missing}, "
     elif [[ "$service" == loki ]]; then
+      # Read through grafana, so a fresh grafana gets the grace as well.
       docker compose exec -T grafana wget -qO- http://loki:3100/ready 2>/dev/null | grep -q '^ready' \
+        || in_startup_grace loki || in_startup_grace grafana \
         || failed+="loki not ready (or grafana down), "
+    elif [[ "$health" == starting ]] && in_startup_grace "$service"; then
+      continue
     elif [[ -n "$health" && "$health" != healthy ]]; then
       failed+="$service $health, "
     fi

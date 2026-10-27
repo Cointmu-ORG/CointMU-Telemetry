@@ -266,7 +266,8 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
 - **#block-update (Grafana):** the rule, the host and role, the value and the Chain dashboard link.
 - **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
   - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
-    no successful off-VM backup copy in 26 h; certificate valid for less than 60 days.
+    no successful off-VM backup copy in 26 h; certificate valid for less than 60 days. For 15 min
+    after a container starts, "starting" or Loki not ready yet does not count (upgrades, restarts).
   - Posted once when a check fails and once when it recovers.
 - **Never** log lines, event payloads, stack traces, or client or peer addresses. The only address is
   the VM's own campus address in the dashboard links.
