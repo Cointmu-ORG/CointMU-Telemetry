@@ -3,14 +3,20 @@ network (Prometheus at prometheus:9090, Loki at loki:3100), with the
 repository mounted at /repo.
 
     ups_queries.py value <promql>          prints the first result's value
-    ups_queries.py rules [<offset s>]      prints "<uid> <state>" for every UPS
-                                           rule, evaluated now (+ offset) the
-                                           way Grafana does (A -> last -> C)
-    ups_queries.py panels <host>           fails if a ups.json panel query
+    ups_queries.py rules [<offset s>]      prints "<uid> <state>" for every
+                                           rule of RULE_GROUP, evaluated now
+                                           (+ offset) the way Grafana does
+                                           (A -> last -> C)
+    ups_queries.py panels <host>           fails if a DASHBOARD panel query
                                            returns nothing for that host
-    ups_queries.py logs <host>             prints the job="ups" lines as JSON
+    ups_queries.py logs <host> [<job>]     prints the lines of that job
+                                           (default ups) as JSON
+
+RULE_GROUP (default ups) and DASHBOARD (default ups.json) come from the
+environment, so agents/chain/check-chain.sh uses this file as well.
 """
 import json
+import os
 import sys
 import time
 import urllib.parse
@@ -21,7 +27,8 @@ import yaml
 PROMETHEUS = "http://prometheus:9090/api/v1/query"
 LOKI = "http://loki:3100/loki/api/v1/query_range"
 RULES = "/repo/grafana/provisioning/alerting/rules.yml"
-DASHBOARD = "/repo/grafana/dashboards/ups.json"
+RULE_GROUP = os.environ.get("RULE_GROUP", "ups")
+DASHBOARD = os.environ.get("DASHBOARD", "/repo/grafana/dashboards/ups.json")
 TIMEOUT_SECONDS = 10
 LOG_LIMIT = 100
 LOG_LOOKBACK = "1h"
@@ -51,9 +58,9 @@ def rule_state(rule: dict, at: float) -> str:
     return ("Alerting" if firing else "Normal") + f"({','.join(f'{v:g}' for v in values)})"
 
 
-def ups_rules() -> list:
+def group_rules() -> list:
     groups = yaml.safe_load(open(RULES))["groups"]
-    return next(g for g in groups if g["name"] == "ups")["rules"]
+    return next(g for g in groups if g["name"] == RULE_GROUP)["rules"]
 
 
 def panel_targets() -> list:
@@ -83,12 +90,13 @@ def main() -> None:
         print(result[0]["value"][1] if result else "")
     elif command == "rules":
         at = time.time() + float(sys.argv[2] if len(sys.argv) > 2 else 0)
-        for rule in ups_rules():
+        for rule in group_rules():
             print(rule["uid"], rule_state(rule, at))
     elif command == "panels":
         check_panels(sys.argv[2])
     elif command == "logs":
-        query = '{job="ups", host="%s"}' % sys.argv[2]
+        job = sys.argv[3] if len(sys.argv) > 3 else "ups"
+        query = '{job="%s", host="%s"}' % (job, sys.argv[2])
         streams = get_json(LOKI, {"query": query, "since": LOG_LOOKBACK, "limit": LOG_LIMIT})["data"]["result"]
         print(json.dumps([[s["stream"], v[1]] for s in streams for v in s["values"]]))
     else:

@@ -1,5 +1,6 @@
-# Alert rules on the geth node logs, sent to #node-logs (policies.yml), and on
-# the UPS metrics (group ups below), sent to #ups. Every geth query skips
+# Alert rules on the geth node logs, sent to #node-logs (policies.yml), on
+# the UPS metrics (group ups below), sent to #ups, and on the chain metrics
+# (group chain below), sent to #block-update. Every geth query skips
 # host="redaction-check-*", the test lines that agents/alloy/check-redaction.sh
 # pushes. Literal "$" in this file would be read as an environment variable.
 #
@@ -299,3 +300,203 @@ groups:
               type: threshold
               expression: B
               conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+  # Chain metrics from the geth node servers (agents/chain/), sent to
+  # #block-update (policies.yml, label source=chain). Each rule is A
+  # (Prometheus, instant) -> B (last value per series) -> C (threshold on B);
+  # the message shows B. Blocks come about every 14 s.
+  - orgId: 1
+    name: chain
+    folder: Chain
+    interval: 1m
+    rules:
+      # No node has seen a new block for 10 minutes (about 40 blocks). With
+      # one of the two miners down the mean block time doubles, and a
+      # 10-minute gap is still about e^-21 unlikely. One alert for the chain,
+      # not per host. No data (no node answers) is "Chain RPC down" or
+      # "Chain metrics missing".
+      - uid: chain-stalled
+        title: Chain stalled
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "s since the newest block on any node (limit 600)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'time() - max(cointmu_chain_head_timestamp_seconds{job="chain"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [600] } }]
+
+      # A node without peers mines or follows alone. A geth restart passes
+      # through 0 peers for well under 5 minutes.
+      - uid: chain-peers-zero
+        title: Chain node has no peers
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "peers"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'min by (host, role) (cointmu_chain_peers{job="chain"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      # Blocks behind the node with the highest head. The nodes are sampled at
+      # different moments, so 1-2 blocks is normal; 10 for 5 minutes is a node
+      # that stopped importing or follows a fork.
+      - uid: chain-node-behind
+        title: Chain node behind
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "blocks behind the highest node (limit 10)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, role) (scalar(max(cointmu_chain_head_block{job="chain"}))
+                - cointmu_chain_head_block{job="chain"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [10] } }]
+
+      # geth's RPC does not answer: geth stopped, crashed or hangs. Then that
+      # node's head series stop, so "behind" and "stalled" cannot see it; this
+      # rule does. A soft PM2 restart takes about a minute.
+      - uid: chain-rpc-down
+        title: Chain RPC down
+        condition: C
+        for: 3m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "(0 = the node's RPC does not answer)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, range: false, expr: 'min by (host, role) (cointmu_chain_rpc_up{job="chain"})' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      # Fresh scrapes of old content: chain-metrics.py or its timer stopped,
+      # and Alloy keeps sending the last file. Same expression as "UPS metrics
+      # stale": during a network or Alloy outage the difference stays small,
+      # so only "Chain metrics missing" fires then.
+      - uid: chain-metrics-stale
+        title: Chain metrics stale
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "s between the scrape and the file's content (limit 60)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, role) (timestamp(cointmu_chain_scrape_timestamp_seconds{job="chain"})
+                - cointmu_chain_scrape_timestamp_seconds{job="chain"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [60] } }]
+
+      # A node that sent chain metrics in the last 24 hours but not in the
+      # last 5 minutes: the node, its Alloy, or the network to this VM is down,
+      # or the push is refused. Per node, like "Host silent", so one node of
+      # three going away fires. A node shut down on purpose keeps it firing
+      # for a day: silence it (RUNBOOK.md). Nothing fires before a node's
+      # first sample.
+      - uid: chain-metrics-missing
+        title: Chain metrics missing
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { source: chain }
+        annotations:
+          value_meaning: "s since the node's last metrics (none in 5 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (time() - max by (host, role) (last_over_time(cointmu_chain_scrape_timestamp_seconds{job="chain"}[24h])))
+                unless max by (host, role) (last_over_time(cointmu_chain_scrape_timestamp_seconds{job="chain"}[5m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]

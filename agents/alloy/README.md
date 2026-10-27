@@ -15,6 +15,11 @@ geth (PM2 log file or journal) ──▶ Alloy ──HTTPS + login──▶ ngin
 | `certs/server.crt` from the VM | `/etc/alloy/telemetry.crt` |
 | the password from `scripts/agent-cred.sh add` | `/etc/alloy/push-password` (0640 root:alloy) |
 
+`config.alloy` also pushes the node's **chain metrics** to Prometheus, with a second login
+(`/etc/alloy/metrics-password`, `METRICS_PUSH_*`). Set those up first and run
+`agents/chain/alloy-preflight.sh` before installing this config (agents/chain/README.md). Without
+them Alloy still ships the logs, but every metrics batch fails with a warning.
+
 ## What it sends
 
 - **Labels:** `job="geth"`, `host` (`AGENT_HOST`), `role` (from the file name,

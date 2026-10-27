@@ -14,6 +14,10 @@ It also watches the **UPS** on one Proxmox host ("UPS monitoring" below): the ho
 events to Discord itself, and ships the UPS daemon's journal to Loki and its metrics to
 [Prometheus](https://prometheus.io/), with a Grafana dashboard and threshold alerts.
 
+The geth node servers push **chain metrics** too ("Chain metrics" below): height, last-block age,
+block time, difficulty, estimated hashrate, peers and sync state per node, with a Grafana dashboard
+and alerts to #block-update.
+
 ```
 CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ──▶ PostgreSQL
   campus LAN only (firewall + bind)   rate limit     IP + PII scrub
@@ -21,7 +25,8 @@ CointMU app ──HTTPS (pinned key)──▶ nginx :443 ──▶ GlitchTip ─
 geth node ─Alloy, HTTPS + login──▶ nginx /loki/api/v1/push ──▶ Loki ◀── Grafana ◀── nginx /grafana/
   IPs/node IDs redacted, WAL       agent allowlist, rate limit    internal network     admin allowlist
                                                                                     │
-UPS host ─Alloy, HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ◀───┘   alerts → #ups
+UPS host ─Alloy, HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ◀───┘   alerts → #ups, #block-update
+geth node ─(same agent) chain metrics──▶ (same endpoint, own login)
   NUT journal (→ /loki) + metrics   agent allowlist, own logins     internal network
   └─ upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
 ```
@@ -61,7 +66,7 @@ the rest. Prometheus has both a time and a size limit.
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, and the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) and the chain metrics end to end (`agents/chain/check-chain.sh`) |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki, Prometheus and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) and the metrics push (`/prometheus/api/v1/write`) only to `nginx/local/agent-allow.conf` plus a per-agent login, a separate one per endpoint. The rest of Loki's and Prometheus' APIs is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
 | Host metrics | Prometheus single binary with the remote-write receiver, no scrape targets of its own; retention by time and size. Each source pushes with its own login (`scripts/agent-cred.sh add <name> metrics`) and `job` label, so more sources (e.g. CointMU-Bot) only need a login |
@@ -71,7 +76,7 @@ the rest. Prometheus has both a time and a size limit.
 | PII | Server-side scrubber on for every project (`GLITCHTIP_PII_SCRUB_DEFAULT`), as a second layer behind the app's allowlist + sanitizer |
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
-| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, and #ups for the UPS (Grafana rules plus the UPS host itself) ("Alerts" below) |
+| Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, #ups for the UPS (Grafana rules plus the UPS host itself), and #block-update for the chain ("Alerts" below) |
 | Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki, Prometheus and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
@@ -107,7 +112,7 @@ cp nginx/local/agent-allow.conf.example nginx/local/agent-allow.conf
 # add one "<address or subnet> 1;" line per geth node server (campus or tailnet IP)
 sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/loki-agents.htpasswd
 sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/metrics-agents.htpasswd
-# agent logins are added later with scripts/agent-cred.sh (agents/alloy/README.md, agents/ups/README.md)
+# agent logins are added later with scripts/agent-cred.sh (agents/alloy/README.md, agents/ups/README.md, agents/chain/README.md)
 
 # 4. Firewall (see below), then start
 docker compose up -d
@@ -226,10 +231,12 @@ All alerts go to one Discord server, one channel per source:
 | Channel | Source | `.env` variable | Applied by |
 |---|---|---|---|
 | #app-errors | GlitchTip: each new issue of the desktop project, once | `DISCORD_WEBHOOK_APP_ERRORS` | `scripts/init-project.sh <email>` (re-run after a change) |
-| #node-logs | Grafana alert rules on the geth node logs | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
+| #node-logs | Grafana alert rules on the geth node logs (log rules only) | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
 | #infra | `scripts/healthcheck.sh` from cron: VM health, independent of Grafana and Loki | `DISCORD_WEBHOOK_INFRA` | read on every run |
 | #ups | Grafana alert rules on the UPS metrics (thresholds, stale or missing data) | `DISCORD_WEBHOOK_UPS` | `docker compose up -d grafana` |
 | #ups | The UPS host itself: power events ("UPS monitoring") | its own webhook, on the host only | read on every event |
+| #block-update | Grafana alert rules on the chain metrics ("Chain metrics") | `DISCORD_WEBHOOK_BLOCK_UPDATE` | `docker compose up -d grafana` |
+| #block-update | Later: the CointMU-Bot block feed | its own webhook, in the bot's config only | the bot |
 
 **Setup.** One webhook per channel: in Discord, Edit Channel → Integrations → Webhooks → New
 Webhook → Copy Webhook URL, then put it in `.env` under that channel's variable.
@@ -256,6 +263,7 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
   - A firing alert repeats at most every 12 h, and its resolution is posted once.
 - **#ups (Grafana):** the rule, the host and UPS, the value and the UPS dashboard link.
 - **#ups (host):** the event, the UPS, the host label, charge and runtime.
+- **#block-update (Grafana):** the rule, the host and role, the value and the Chain dashboard link.
 - **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
   - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
     no successful off-VM backup copy in 26 h; certificate valid for less than 60 days.
@@ -287,7 +295,7 @@ network team to allow it through their firewall or proxy.
 ```bash
 # 1. Webhook and VM egress: a test message to each configured channel (expect 204).
 #    The URL goes to curl through a config file descriptor, never on the command line.
-for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA DISCORD_WEBHOOK_UPS; do
+for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA DISCORD_WEBHOOK_UPS DISCORD_WEBHOOK_BLOCK_UPDATE; do
   url=$(sed -n "s/^$var=//p" .env); [ -n "$url" ] || continue
   printf '{"content":"test: %s on %s","allowed_mentions":{"parse":[]}}' "$var" "$(hostname -s)" \
     | curl -sS -o /dev/null -w "$var: %{http_code}\n" -H 'Content-Type: application/json' \
@@ -308,8 +316,8 @@ print("Discord answered", r.status if r else "nothing (blocked or unreachable)")
 DISK_MAX_PERCENT=1 scripts/healthcheck.sh; scripts/healthcheck.sh   # "FAIL disk", then "OK disk"
 ```
 
-For #node-logs and #ups, open Grafana → Alerting → Contact points → `discord-node-logs` or
-`discord-ups` → Test (as an org Admin). The UPS host tests its own webhook with
+For #node-logs, #ups and #block-update, open Grafana → Alerting → Contact points →
+`discord-node-logs`, `discord-ups` or `discord-chain` → Test (as an org Admin). The UPS host tests its own webhook with
 `sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (agents/ups/README.md).
 
 **Blind spot.** GlitchTip, Grafana and `healthcheck.sh` all run on this VM. If the whole VM is down
@@ -358,6 +366,27 @@ RUNBOOK.md ("Alerts") has what each one means.
 - **If automatic shutdown is turned on later** (upsmon.conf.snippet), A's shutdown post is best
   effort: it is given up after about 4 s, so that `FINALDELAY` (10 s) is never exceeded. If
   Discord is slow at that moment, the "SHUTTING DOWN" message is lost.
+
+## Chain metrics
+
+Each geth node server runs `chain-metrics.py` every 15 s against its own geth RPC (loopback only),
+and the node's Alloy agent pushes the result to Prometheus with its own metrics login. Install and
+details are in [agents/chain/README.md](agents/chain/README.md). Nodes: server101 (bootnode and
+miner) and CT 106 (miner). Grafana dashboard "Chain": height, blocks behind the highest node,
+last-block age, block time, difficulty, estimated network hashrate, peers, sync state and RPC state
+per node.
+
+Alerts go to **#block-update** (`DISCORD_WEBHOOK_BLOCK_UPDATE`); #node-logs keeps the log rules
+only. Later the CointMU-Bot block feed will post to #block-update as well, with its own webhook.
+Blocks come about every 14 s.
+- **Chain stalled:** no node has seen a new block for 10 min. One alert for the whole chain.
+- **Chain node has no peers:** for 5 min.
+- **Chain node behind:** more than 10 blocks behind the highest node, for 5 min.
+- **Chain RPC down:** a node's RPC does not answer for 3 min (geth stopped or hangs).
+- **Chain metrics stale:** the collector stopped while Alloy keeps sending its last file.
+- **Chain metrics missing:** a node that sent metrics in the last 24 h sent none for 5 min.
+
+RUNBOOK.md ("Alerts") has what each one means.
 
 ## Operations
 
