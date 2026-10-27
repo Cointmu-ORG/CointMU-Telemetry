@@ -1,0 +1,13 @@
+# /etc/systemd/system/cointmu-chain-metrics.timer on a geth node server. Alloy
+# scrapes the file every 15 s as well; "Chain metrics stale" fires when its
+# content is more than 60 s older than the scrape.
+[Unit]
+Description=Write geth chain metrics every 15 s
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -78,7 +78,7 @@ jobs:
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
           scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh agents/alloy/check-redaction.sh
-          agents/ups/*.sh agents/ups/testdata/*.sh
+          agents/ups/*.sh agents/ups/testdata/*.sh agents/chain/*.sh agents/chain/testdata/*.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
   alloy:
@@ -97,7 +97,7 @@ jobs:
           done
 
   # The agent config against a real Loki, plus Grafana starting from its
-  # provisioning (Loki and Prometheus data sources, both rule groups) with no
+  # provisioning (Loki and Prometheus data sources, all rule groups) with no
   # alert webhook set.
   redaction:
     name: redaction
@@ -231,3 +231,15 @@ jobs:
       - run: agents/ups/check-notify.sh
 
       - run: agents/ups/check-ups.sh
+
+  # The chain metrics end to end in their own compose project: chain-metrics.py
+  # against stub RPCs on a fake node, agents/alloy/config.alloy through nginx
+  # into Prometheus, the Chain dashboard and the chain rules per scenario, and
+  # Alloy without its metrics password.
+  chain:
+    name: chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: agents/chain/check-chain.sh

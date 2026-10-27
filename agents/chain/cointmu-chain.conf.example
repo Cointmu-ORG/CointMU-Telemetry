@@ -1,0 +1,9 @@
+# /etc/cointmu-chain/cointmu-chain.conf on a geth node server (root:root 0644;
+# no secrets). Read by chain-metrics.py on every run.
+#
+# NODES: one "<role>=<url>" per geth process on this host, space separated.
+# role is lowercase letters (the "role" label, as in the log agent: bootnode,
+# miner); url is the node's HTTP RPC, loopback only, with eth and net enabled.
+#   server101: NODES=bootnode=http://127.0.0.1:8545 miner=http://127.0.0.1:8546
+#   CT 106:    NODES=miner=http://127.0.0.1:8545
+NODES=miner=http://127.0.0.1:8545

@@ -1,0 +1,42 @@
+# /etc/systemd/system/cointmu-chain-metrics.service on a geth node server
+# (agents/chain/README.md). Started every 15 s by cointmu-chain-metrics.timer.
+# A fixed system user, not DynamicUser: a dynamic user's state lives under
+# /var/lib/private (0700 root), out of the Alloy agent's reach. The directory
+# comes from cointmu-chain.tmpfiles.conf, not StateDirectory=, which would
+# chown it back to this user's group on every start.
+[Unit]
+Description=Write geth chain metrics for the Alloy textfile collector
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cointmu-chain/chain-metrics.py
+User=cointmu-chain
+Group=cointmu-chain
+UMask=0027
+# Only geth's RPC on localhost, only its output directory.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cointmu-chain
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=localhost
+IPAddressDeny=any
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=64M
+# Two nodes, two RPC requests each, 3 s timeout per request.
+TimeoutStartSec=20
