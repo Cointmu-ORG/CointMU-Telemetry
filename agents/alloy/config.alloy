@@ -1,7 +1,9 @@
 // Grafana Alloy on a geth node server: reads the geth logs, labels them,
 // redacts peer addresses and node IDs, and pushes them to the telemetry VM's
-// Loki endpoint. Settings come from /etc/default/alloy (alloy.env.example).
-// Needs --stability.level=experimental for the write-ahead log (WAL).
+// Loki endpoint. It also pushes the chain metrics that agents/chain/ writes
+// to Prometheus, with its own login. Settings come from /etc/default/alloy
+// (alloy.env.example). Needs --stability.level=experimental for the
+// write-ahead log (WAL).
 
 // --- Sources: a log file, the journal, or both. An empty variable turns its
 // --- source off; both feed the same pipeline, so the labels are the same.
@@ -149,5 +151,61 @@ loki.write "telemetry" {
 	wal {
 		enabled         = true
 		max_segment_age = "24h"
+	}
+}
+
+// --- Metrics: chain.prom from agents/chain/chain-metrics.py -----------------
+// Install this config only after agents/chain/alloy-preflight.sh passes: without
+// the metrics password or METRICS_PUSH_*, Alloy still runs and ships logs, but
+// every metrics batch fails with a warning only.
+
+// Only the textfile collector: none of the host's other metrics leave it.
+prometheus.exporter.unix "chain" {
+	set_collectors = ["textfile"]
+
+	textfile {
+		directory = coalesce(sys.env("CHAIN_TEXTFILE_DIR"), "/var/lib/cointmu-chain")
+	}
+}
+
+// job="chain" for every series; host comes from remote_write, role from the file.
+discovery.relabel "chain" {
+	targets = prometheus.exporter.unix.chain.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "chain"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "chain"
+	}
+}
+
+prometheus.scrape "chain" {
+	targets         = discovery.relabel.chain.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.telemetry.receiver]
+}
+
+prometheus.remote_write "telemetry" {
+	endpoint {
+		// METRICS_PUSH_URL: https://<telemetry VM>/prometheus/api/v1/write
+		url = sys.env("METRICS_PUSH_URL")
+
+		// Its own login (scripts/agent-cred.sh add <name> metrics).
+		basic_auth {
+			username      = sys.env("METRICS_PUSH_USER")
+			password_file = "/etc/alloy/metrics-password"
+		}
+
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
 	}
 }

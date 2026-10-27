@@ -1,5 +1,6 @@
-# Rules labelled source=ups go to #ups, everything else to #node-logs; one
-# message per rule and host (and UPS). A firing alert is repeated at most
+# Rules labelled source=ups go to #ups, source=chain to #block-update,
+# everything else (the log rules) to #node-logs; one message per rule and host
+# (and UPS or role). A firing alert is repeated at most
 # every 12 hours; resolving it sends one message.
 apiVersion: 1
 policies:
@@ -13,3 +14,6 @@ policies:
       - receiver: discord-ups
         object_matchers: [[source, =, ups]]
         group_by: [alertname, host, ups]
+      - receiver: discord-chain
+        object_matchers: [[source, =, chain]]
+        group_by: [alertname, host, role]
