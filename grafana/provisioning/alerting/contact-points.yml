@@ -1,4 +1,5 @@
-# Grafana's built-in Discord integration, posting to #node-logs and #ups. The
+# Grafana's built-in Discord integration, posting to #node-logs, #ups and
+# #block-update. The
 # webhook URLs come from .env through compose.yml; there it falls back to a
 # placeholder on the reserved .invalid domain, because Grafana refuses a
 # Discord contact point without a URL and would not start. With the
@@ -36,3 +37,17 @@ contactPoints:
           use_embed_description: true
           title: '{{ template "cointmu.title" . }}'
           message: '{{ template "cointmu.ups_message" . }}'
+  # Chain metrics rules (rules.yml, group chain). #node-logs keeps the log
+  # rules only.
+  - orgId: 1
+    name: discord-chain
+    receivers:
+      - uid: discord-chain
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: $DISCORD_WEBHOOK_BLOCK_UPDATE
+          use_discord_username: false
+          use_embed_description: true
+          title: '{{ template "cointmu.title" . }}'
+          message: '{{ template "cointmu.chain_message" . }}'

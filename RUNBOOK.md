@@ -196,10 +196,10 @@ password-reset links, invitations and MFA trust cookies. Then:
 
 1. In Discord: Edit Channel → Integrations → Webhooks → delete the old webhook, then create a new one
    and copy its URL.
-2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS`, `_INFRA` or `_UPS`).
+2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS`, `_INFRA`, `_UPS` or `_BLOCK_UPDATE`).
 3. Apply it:
    - **#app-errors:** `scripts/init-project.sh <owner email>`, which updates GlitchTip's recipient.
-   - **#node-logs, #ups (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
+   - **#node-logs, #ups, #block-update (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
    - **#infra:** nothing; `healthcheck.sh` reads `.env` on every run.
 4. Send a test message (README.md, "Alerts").
 
@@ -274,6 +274,18 @@ cron saw. Its state is in `state/healthcheck/` (one file per failing check that 
 | UPS metrics stale | `ups-metrics.sh` or its timer stopped, so the graphs show old values. `systemctl status cointmu-ups-metrics.timer cointmu-ups-metrics.service` and `journalctl -u cointmu-ups-metrics -n 20` on the host (it names a wrong directory group or mode) |
 | UPS data missing | Nothing from the UPS host for 5 min: the host is down, Alloy stopped, the network is down, or the push is refused. "Logs are not arriving" below applies to the metrics push as well (`journalctl -u alloy` on the host: 401/403). After a power-fail shutdown it fires until the host is back. On a fresh deployment it fires until the host ships metrics |
 
+**#block-update from Grafana** (chain metrics, agents/chain/; repeats at most every 12 h; one message
+when resolved). Dashboard "Chain"; node commands as the node's user in `~/cointmu-network`:
+
+| Rule | Meaning, first steps |
+|---|---|
+| Chain stalled | No node has a block younger than 10 min: no miner is mining, or the miners are cut off from each other. `pm2 status` on server101 and CT 106 (miners online?), "Peers" on the dashboard, and the "Geth node logs" dashboard for fatal lines. One miner alone still makes blocks (about 28 s apart) |
+| Chain node has no peers | That node is isolated for 5 min: the bootnode (server101 :30303) down, or the network/firewall between the nodes. `pm2 logs <app> --lines 50 --nostream` on the node; the peer count recovers on its own once the bootnode is back |
+| Chain node behind | More than 10 blocks behind the highest node for 5 min: still syncing after a restart (dashboard "Sync"), stopped importing, or on a fork. Check its logs for "Imported new chain segment" and bad-block lines; a node on a fork needs a careful resync, never a datadir delete without a backup |
+| Chain RPC down | geth on that host/role does not answer on its loopback RPC for 3 min: the process stopped, crashed or hangs. `pm2 status`, `pm2 logs <app> --lines 80 --nostream`. A soft PM2 restart takes about a minute; never `kill -9` (rewinds the chain). A restart on purpose that takes longer: silence it (below) |
+| Chain metrics stale | `chain-metrics.py` or its timer stopped, so the graphs show old values. `systemctl status cointmu-chain-metrics.timer cointmu-chain-metrics.service` and `journalctl -u cointmu-chain-metrics -n 20` on the node (it names a wrong directory group, mode or NODES entry) |
+| Chain metrics missing | That node sent nothing for 5 min (but did in the last 24 h): the node, its Alloy, or the network is down, or the push is refused. "Logs are not arriving" applies to the metrics push as well (`journalctl -u alloy`: 401/403, or "unable to read … metrics-password"). A node retired on purpose: silence it for 25 h (below) |
+
 ### After the battery ran out (or a shutdown by hand)
 
 1. Did the UPS host come back, and the telemetry VM with it (it starts on boot)? Check in the Proxmox UI.
@@ -293,6 +305,10 @@ Grafana → Alerting → Silences → New silence, with matchers `alertname = Ho
 - **Node retired:** about 25 hours. After that the host has dropped out of the 24-hour window and the
   rule stops on its own. Let the silence expire; never leave a permanent one.
 - **Never silence by `alertname` alone:** that hides every host.
+
+The same applies to the chain rules (#block-update): for a geth node stopped on purpose, silence
+`host = <name>` together with `source = chain` (and `role = <role>` if only one geth on the host is
+stopped). "Chain metrics missing" also looks back 24 hours.
 
 ## Restore from backup
 
@@ -385,6 +401,9 @@ CI runs `promtool check config` with the new image, then:
 docker compose pull loki prometheus grafana && docker compose up -d loki prometheus grafana
 docker compose ps prometheus            # healthy
 ```
+
+`healthcheck.sh` gives each restarted container 15 minutes to become ready before #infra hears about
+it ("starting", Loki's `/ready`); a container that is not running still posts at once.
 
 Loki keeps its data in `loki-data`, and Prometheus in `prometheus-data`. A Prometheus restart is a gap
 of a few seconds: the agents buffer and replay it. A Grafana major upgrade migrates its SQLite database
@@ -563,6 +582,30 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
    Grafana fires "UPS data missing" until the host ships metrics, so do the host part first or set
    the webhook only afterwards.
 
+## Moving to chain metrics (deployments from before it)
+
+Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node steps are in
+[agents/chain/README.md](agents/chain/README.md); one host at a time, with your ACC for each.
+
+0. **Discord.** Create a webhook in #block-update and put it in `.env` as
+   `DISCORD_WEBHOOK_BLOCK_UPDATE` (empty = off). Test it with README.md "Alerts", step 1.
+1. **VM.**
+   ```bash
+   git pull
+   docker compose up -d grafana     # Chain dashboard, chain rules, discord-chain contact point
+   scripts/agent-cred.sh add server101-1 metrics
+   scripts/agent-cred.sh add server106-1 metrics
+   ```
+   The chain rules stay quiet until a node sends its first sample ("missing" needs a sample in the
+   last 24 h), so the order of the host steps does not page anyone.
+2. **CT 106.** "Metrics collector", then "Alloy" (agents/chain/README.md, steps 3 and 4). The new
+   `config.alloy` goes in only after `alloy-preflight.sh` passes.
+3. **server101.** Step 1 there first: HTTP RPC for the miner, one soft `pm2 restart cointmu-miner`
+   while CT 106 keeps mining. Then steps 3 and 4 with both roles in NODES.
+4. **Check.** Dashboard "Chain": three nodes (server101 bootnode and miner, CT 106 miner) at the same
+   height, last-block age under a minute. Grafana → Alerting: every chain rule Normal. The geth log
+   panels still get lines from both hosts.
+
 ## Node logs (Loki + Grafana)
 
 ### Is Loki up?
@@ -590,9 +633,9 @@ Alloy drops batches answered with 401, so add the new login before removing the 
 3. Check new lines arrive (Grafana, or `journalctl -u alloy`).
 4. `scripts/agent-cred.sh revoke <host>-1`
 
-The UPS host also has a **metrics login**, rotated the same way with the kind `metrics`:
+The UPS host and the geth nodes also have a **metrics login**, rotated the same way with the kind `metrics`:
 `scripts/agent-cred.sh add <host>-2 metrics`, the new password in `/etc/alloy/metrics-password`,
-`METRICS_PUSH_USER=<host>-2`, restart Alloy, check the "UPS" dashboard, then
+`METRICS_PUSH_USER=<host>-2`, restart Alloy, check the "UPS" or "Chain" dashboard, then
 `scripts/agent-cred.sh revoke <host>-1 metrics`. The two logins are separate: a log login cannot
 write metrics, and the other way round.
 
