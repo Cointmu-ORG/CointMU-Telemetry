@@ -57,10 +57,21 @@ docker run -d --name "$CONTAINER" --network "$network" \
   -v "$work/etc/telemetry.crt:/etc/alloy/telemetry.crt:ro" \
   -v "$work/logs:/logs" \
   "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy \
-  /etc/alloy/config.alloy >/dev/null
+  --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy >/dev/null
 
-# tail_from_end: append only once the file is being tailed.
-sleep 5
+# tail_from_end: append only once Alloy tails the file, by its own metric;
+# a fixed sleep loses the lines when Alloy starts slowly (busy runner). The
+# metrics port is only on the throwaway network, never published.
+tailing() {
+  probe "http://$CONTAINER:12345/metrics" 2>/dev/null \
+    | grep -q '^loki_source_file_files_active_total{component_id="loki.source.file.geth",.*} 1$'
+}
+for _ in $(seq "$WAIT_SECONDS"); do tailing && break; sleep 1; done
+if ! tailing; then
+  echo "Alloy did not tail the log file within $WAIT_SECONDS s" >&2
+  docker logs --tail 30 "$CONTAINER" >&2
+  exit 1
+fi
 cat "$SAMPLE" >> "$work/logs/cointmu-check-error.log"
 
 result=""
