@@ -9,3 +9,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # CodeQL refuses to run when init and analyze are on different versions,
+      # so they have to be bumped in the same PR.
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
