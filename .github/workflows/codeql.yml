@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  # analyze reads this workflow run; private repos need it granted explicitly.
+  actions: read
   contents: read
   security-events: write
 
