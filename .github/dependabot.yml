@@ -1,10 +1,13 @@
 version: 2
 updates:
-  # compose.yml images (tag@digest pins): one PR per new tag or rebuilt digest.
+  # compose.yml images (tag@digest pins): one PR for all new tags and rebuilt digests.
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    groups:
+      compose-images:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -12,6 +15,6 @@ updates:
     groups:
       # CodeQL refuses to run when init and analyze are on different versions,
       # so they have to be bumped in the same PR.
-      codeql-action:
-        patterns:
-          - "github/codeql-action/*"
+      # One PR for all actions, which also keeps them together.
+      actions:
+        patterns: ["*"]
