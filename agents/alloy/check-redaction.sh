@@ -62,9 +62,12 @@ docker run -d --name "$CONTAINER" --network "$network" \
 # tail_from_end: append only once Alloy tails the file, by its own metric;
 # a fixed sleep loses the lines when Alloy starts slowly (busy runner). The
 # metrics port is only on the throwaway network, never published.
+# Read the metrics fully before grep: `probe | grep -q` lets grep exit on the
+# match, wget dies of SIGPIPE and pipefail turns a match into a failure.
 tailing() {
-  probe "http://$CONTAINER:12345/metrics" 2>/dev/null \
-    | grep -q '^loki_source_file_files_active_total{component_id="loki.source.file.geth",.*} 1$'
+  local metrics
+  metrics=$(probe "http://$CONTAINER:12345/metrics" 2>/dev/null) || return 1
+  grep -q '^loki_source_file_files_active_total{component_id="loki.source.file.geth",.*} 1$' <<<"$metrics"
 }
 for _ in $(seq "$WAIT_SECONDS"); do tailing && break; sleep 1; done
 if ! tailing; then

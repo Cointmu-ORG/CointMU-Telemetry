@@ -91,7 +91,7 @@ services:
   # healthcheck; RUNBOOK.md checks /ready through the grafana container.
   loki:
     <<: [*hardening, *logging]
-    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
     command: ["-config.file=/etc/loki/config.yml", "-config.expand-env=true"]
     environment:
       LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-720h}
@@ -140,7 +140,7 @@ services:
   # Served by the proxy at /grafana/ to the admin allowlist only.
   grafana:
     <<: [*hardening, *logging]
-    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     environment:
       # Applied only when the database is first created; RUNBOOK.md rotates it.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
