@@ -13,8 +13,6 @@ updates:
     schedule:
       interval: weekly
     groups:
-      # CodeQL refuses to run when init and analyze are on different versions,
-      # so they have to be bumped in the same PR.
-      # One PR for all actions, which also keeps them together.
+      # One PR for all actions.
       actions:
         patterns: ["*"]
