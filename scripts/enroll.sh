@@ -40,6 +40,8 @@ die() { echo "enroll: $*" >&2; exit 1; }
 . scripts/enroll/options.sh
 # shellcheck source=scripts/enroll/commands.sh
 . scripts/enroll/commands.sh
+# shellcheck source=scripts/enroll/probes.sh
+. scripts/enroll/probes.sh
 # shellcheck source=scripts/enroll/verify.sh
 . scripts/enroll/verify.sh
 # shellcheck source=scripts/enroll/alloy-package.sh
@@ -119,7 +121,7 @@ cmd_change() {
   save_settings
   shred_bundle "$h_host"
   build_bundle without-alloy "$stage"
-  h_state=pending
+  h_state=updating
   registry_save
   print_commands
 }
@@ -136,6 +138,7 @@ cmd_verify() {
   check_host_data || die "$h_host is not complete yet; the bundle stays until it is, at most 24 h"
   h_state=active
   registry_save
+  write_probe_targets
   shred_bundle "$h_host"
   echo "$h_host is active"
 }
@@ -160,7 +163,7 @@ cmd_reissue() {
   undo=(undo_login undo_bundle)
   add_logins "$h_login" "$(host_logins)" "$stage"
   build_bundle with-alloy "$stage"
-  h_state=pending
+  if [[ "$h_state" == active ]]; then h_state=updating; fi
   registry_save
   undo=()
   print_commands
@@ -187,6 +190,7 @@ cmd_remove() {
   shred_bundle "$h_host"
   delete_settings
   registry_delete "$h_host"
+  write_probe_targets
   echo "removed $h_host. A hand-written line for $h_ip in $ALLOWLIST, if any, is still there."
   echo "On the host: install-agent.sh --uninstall. Rules that look back 24 h: RUNBOOK.md, \"Silence a node\"."
 }
@@ -197,7 +201,7 @@ cmd_list() {
   while IFS= read -r host; do
     load_host "$host"
     if check_host_data >/dev/null; then data=fresh; else data="NOT FRESH"; fi
-    if [[ "$h_state" == pending && ! -f "$(bundle_file "$host")" ]]; then h_state="pending, bundle expired"; fi
+    if [[ "$h_state" != active && ! -f "$(bundle_file "$host")" ]]; then h_state+=", bundle expired"; fi
     printf '%-16s %-24s %-20s %-8s %-20s %s\n' "$host" "$h_state" "$h_scopes" "${h_rack:--}" "$h_login" "$data"
   done < <(registry_hosts)
 }

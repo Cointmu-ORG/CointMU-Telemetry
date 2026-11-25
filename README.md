@@ -36,7 +36,8 @@ geth node ─(same agent) chain metrics──▶ (same endpoint, own login)
 The root is the platform (compose, nginx, Loki, Prometheus, Grafana provisioning, scripts). What is
 monitored lives per scope in `scopes/<name>/`: agent files, `dashboards/` and `alerting/` (rules and
 contact points). Each scope has its own Grafana folder and Discord channels. Scopes: `cointmu`, `ups`,
-`infra` (any server's own health).
+`infra` (any server's own health),
+`watchdog` (watches this VM from elsewhere).
 A new scope needs its dashboard provider in `grafana/provisioning/dashboards/scopes.yml`, its mounts in
 `compose.yml` and its route in `grafana/provisioning/alerting/policies.yml` (one tree for all scopes).
 
@@ -331,10 +332,9 @@ For #node-logs, #ups and #block-update, open Grafana → Alerting → Contact po
 `discord-node-logs`, `discord-ups` or `discord-chain` → Test (as an org Admin). The UPS host tests its own webhook with
 `sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (scopes/ups/README.md).
 
-**Blind spot.** GlitchTip, Grafana and `healthcheck.sh` all run on this VM. If the whole VM is down
-or loses its network, nothing alerts. This is accepted for now. A possible later addition is an external heartbeat, e.g. a
-cron job on a node server that checks `https://<VM>/_health/` and posts to #infra when it fails; it
-is not set up.
+**Blind spot.** GlitchTip, Grafana, the probes and `healthcheck.sh` all run on this VM. If the VM or its
+Proxmox host is down, only the watchdog on another machine can say so
+([scopes/watchdog/](scopes/watchdog/README.md)). If that machine is down as well, nothing alerts.
 
 ## UPS monitoring
 

@@ -165,7 +165,7 @@ check_reissue() {
   touch -d '25 hours ago' "$repo/state/bundles/$HOST.tar"
   enroll expire 2>/dev/null
   check "bundle expired after 24 h" test ! -e "$repo/state/bundles/$HOST.tar"
-  check "list shows the expired bundle" grep -F "pending, bundle expired" <(enroll list)
+  check "list shows the expired bundle" grep -F "updating, bundle expired" <(enroll list)
   enroll remove "$HOST" >/dev/null 2>&1
   # A reload is asynchronous: old nginx workers may take one more request.
   wait_for "403 after remove" push_gives "$FORBIDDEN" "$PROJECT-agent" "$HOST-2" "$password" /loki/api/v1/push

@@ -224,6 +224,9 @@ check "deb12: rack and type in infra_host_info" grep -F '"rack":"R1"' <(compose 
 for collector in smart pve gpu; do
   check "deb12: collector $collector ran in its sandbox" on deb12 grep -q "collector=\"$collector\"" "/var/lib/cointmu-infra/$collector/$collector.prom"
 done
+probe_is_up() { compose exec -T grafana wget -qO- "http://prometheus:9090/api/v1/query?query=probe_success%7Bhost%3D%22$1%22,probe%3D%22icmp%22%7D%3D%3D1" </dev/null | grep -F '"result":[{'; }
+wait_for "deb12: probed after verify, without a reload and without privileges" probe_is_up deb12
+check "deb12: no address in the probe's labels" bash -c "! grep -F '\"instance\":\"1' <(cd '$repo' && docker compose exec -T grafana wget -qO- 'http://prometheus:9090/api/v1/query?query=probe_success' </dev/null)"
 check "deb12: alloy reads the collectors' files" on deb12 runuser -u alloy -- cat /var/lib/cointmu-infra/gpu/gpu.prom
 
 start_host ubu24 ubuntu2404

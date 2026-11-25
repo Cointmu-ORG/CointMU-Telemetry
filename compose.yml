@@ -111,7 +111,7 @@ services:
 
   # Metrics pushed by host agents (README.md, "UPS monitoring"): the proxy
   # passes POST /prometheus/api/v1/write through and nothing else, so the query
-  # API is reachable from Grafana only. No scrape targets of its own.
+  # API is reachable from Grafana only. It scrapes only the blackbox exporter.
   prometheus:
     <<: [*hardening, *logging]
     image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
@@ -127,6 +127,7 @@ services:
       GOMEMLIMIT: 600MiB
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/probes:/etc/prometheus/probes:ro
       - prometheus-data:/prometheus
     read_only: true
     tmpfs: [/tmp]
@@ -139,6 +140,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # Probes the enrolled hosts (ICMP, SSH port, Proxmox web port) for Prometheus.
+  # No privileges: Docker lets every group open ping sockets.
+  blackbox:
+    <<: [*hardening, *logging]
+    image: prom/blackbox-exporter:v0.29.1@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    user: "65534:65534"
+    volumes:
+      - ./scopes/infra/probes:/etc/blackbox:ro
+    read_only: true
+    networks: [logs, probe-egress]
+    mem_limit: 64m
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9115/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   # Served by the proxy at /grafana/ to the admin allowlist only.
   grafana:
@@ -274,6 +294,8 @@ networks:
   # Docker cannot limit it to discord.com: the VM firewall decides
   # (README.md, "Alerts").
   alerts-egress: {}
+  # The blackbox exporter's route to the probed hosts.
+  probe-egress: {}
 
 volumes:
   pg-data:

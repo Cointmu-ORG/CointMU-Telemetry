@@ -685,6 +685,16 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
 4. Enroll one host with scope `infra` first (proxmox23: `enroll.sh change`), leave it for a day, then compare:
    `docker stats --no-stream`, and in Grafana `count by (host) ({scope="infra"})`.
 
+## Moving to external probes (deployments from before them)
+
+1. ```bash
+   git pull --ff-only && docker compose up -d blackbox
+   docker compose up -d --no-deps --force-recreate prometheus grafana
+   scripts/enroll.sh verify <host>      # for each enrolled host: writes its probe targets
+   ```
+2. Hosts with a firewall (pve-firewall) must let the VM ping them and reach their SSH port and 8006.
+3. The watchdog on another host: [scopes/watchdog/README.md](scopes/watchdog/README.md).
+
 ## Node logs (Loki + Grafana)
 
 ### Is Loki up?

@@ -1,0 +1,13 @@
+# Scope watchdog (directives: scopes/cointmu/agent.manifest), on one host that is
+# neither the telemetry VM nor its Proxmox host. Needs scope infra on the same
+# host, which ships its timestamp. The two webhooks are put there by hand
+# (README.md).
+logins metrics
+tool curl
+user cointmu-watchdog
+conf /etc/cointmu-watchdog/cointmu-watchdog.conf WATCHDOG_PVE_NAME WATCHDOG_PVE WATCHDOG_PVE_PORTS WATCHDOG_VM WATCHDOG_VM_PORTS WATCHDOG_VM_URL
+file scopes/watchdog/watchdog.sh /usr/local/lib/cointmu-watchdog/watchdog.sh 755
+tmpfiles scopes/watchdog/cointmu-watchdog.tmpfiles.conf
+unit scopes/watchdog/cointmu-watchdog.service
+timer scopes/watchdog/cointmu-watchdog.timer
+verify metrics infra_collector_timestamp_seconds{collector="watchdog",host="HOST"}

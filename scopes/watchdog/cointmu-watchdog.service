@@ -1,0 +1,35 @@
+# /etc/systemd/system/cointmu-watchdog.service (scopes/watchdog/README.md),
+# started every minute by cointmu-watchdog.timer.
+[Unit]
+Description=Watch the telemetry VM and its Proxmox host
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cointmu-watchdog/watchdog.sh
+User=cointmu-watchdog
+Group=cointmu-watchdog
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cointmu-watchdog /var/lib/cointmu-infra/watchdog
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=64M
+TimeoutStartSec=50

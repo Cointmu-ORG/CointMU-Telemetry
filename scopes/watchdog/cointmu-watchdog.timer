@@ -1,0 +1,11 @@
+# /etc/systemd/system/cointmu-watchdog.timer (scopes/watchdog/README.md).
+[Unit]
+Description=Watch the telemetry VM every minute
+
+[Timer]
+OnActiveSec=10s
+OnUnitActiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

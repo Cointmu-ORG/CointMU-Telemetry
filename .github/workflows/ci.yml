@@ -59,6 +59,13 @@ jobs:
 
       # No recording or alerting rules in Prometheus (alert rules are
       # Grafana-managed), so the config is all there is to check.
+      - name: blackbox config check
+        run: |
+          image=$(sed -n 's|^ *image: \(prom/blackbox-exporter:.*\)$|\1|p' compose.yml)
+          test -n "$image"
+          docker run --rm -v "$PWD/scopes/infra/probes:/etc/blackbox:ro" "$image" \
+            --config.file=/etc/blackbox/blackbox.yml --config.check
+
       - name: promtool check config
         run: |
           image=$(sed -n 's|^ *image: \(prom/prometheus:.*\)$|\1|p' compose.yml)
@@ -80,7 +87,7 @@ jobs:
           -x scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
           agent/*.sh testing/*.sh
           scopes/cointmu/alloy/check-redaction.sh
-          scopes/infra/*.sh scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
+          scopes/infra/*.sh scopes/watchdog/*.sh scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
       # enroll.sh together with the files it sources.
       - run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" -x -a scripts/enroll.sh
@@ -279,6 +286,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - run: scopes/infra/check-infra.sh
+
+      - run: python3 scopes/watchdog/testdata/test_watchdog.py
 
   # enroll.sh and install-agent.sh end to end: throwaway hosts with systemd, on a
   # network without internet.

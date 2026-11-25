@@ -1,6 +1,6 @@
 # Prometheus for host metrics pushed by agents (Alloy remote_write through
-# nginx /prometheus/api/v1/write, one login per agent). It scrapes nothing
-# itself; retention is set by flags in compose.yml.
+# nginx /prometheus/api/v1/write, one login per agent). The only thing it scrapes
+# itself are the external probes; retention is set by flags in compose.yml.
 
 global:
   # Only used by rules Prometheus would evaluate itself (none: alert rules are
@@ -14,3 +14,23 @@ storage:
     # rejects samples older than its in-memory head (about an hour) as out of
     # bounds, and the gap stays.
     out_of_order_time_window: 8h
+
+# Is a host reachable from this VM? The blackbox exporter probes each target; the
+# list comes from scripts/enroll.sh and is re-read without a reload. Addresses
+# stay out of the labels.
+scrape_configs:
+  - job_name: infra-probe
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /probe
+    file_sd_configs:
+      - files: [/etc/prometheus/probes/*.json]
+        refresh_interval: 1m
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { target_label: __address__, replacement: "blackbox:9115" }
+      - { target_label: instance, replacement: probe }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: probe_(success|duration_seconds|ssl_earliest_cert_expiry)
+        action: keep
