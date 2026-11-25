@@ -1,0 +1,101 @@
+// Scope infra on any enrolled server: the host's own metrics (CPU, memory,
+// disks, filesystems, network, temperatures, ZFS) and the files that
+// infra-metrics.py writes (SMART, Proxmox guest counts and storages, GPU).
+// Installed as /etc/alloy/conf.d/infra.alloy next to the push components.
+// No logs, no guest names, no addresses, no serial numbers.
+
+prometheus.exporter.unix "infra" {
+	// INFRA_COLLECTORS is set for containers only (agent.manifest): there most
+	// of these would show the host's hardware.
+	set_collectors = string.split(coalesce(sys.env("INFRA_COLLECTORS"), "cpu,diskstats,filesystem,hwmon,loadavg,mdadm,meminfo,netdev,stat,textfile,thermal_zone,time,uname,vmstat,zfs"), ",")
+
+	// One folder per collector (cointmu-infra.tmpfiles.conf).
+	textfile {
+		directory = coalesce(sys.env("INFRA_TEXTFILE_DIRS"), "/var/lib/cointmu-infra/*")
+	}
+
+	filesystem {
+		fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|efivarfs|fuse.*|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|pstore|ramfs|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$"
+		mount_points_exclude = "^/(dev|proc|run|sys|etc/pve|var/lib/(docker|containers|lxcfs)|snap)($|/)"
+	}
+
+	// Physical disks only: the rest are the same bytes again, or a guest's.
+	disk {
+		device_exclude = "^(dm-|drbd|fd|loop|md|nbd|ram|rbd|sr|zd|zram)[0-9]+$|^(sd[a-z]+|vd[a-z]+|xvd[a-z]+)[0-9]+$|^(nvme[0-9]+n[0-9]+|mmcblk[0-9]+)(p[0-9]+|boot[0-9]+|rpmb)$"
+	}
+
+	netdev {
+		device_exclude = "^(lo|br-.*|docker.*|fw(br|ln|pr).*|tap.*|veth.*|vnet.*|virbr.*)$"
+	}
+}
+
+discovery.relabel "infra" {
+	targets = prometheus.exporter.unix.infra.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "infra"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "infra"
+	}
+
+	rule {
+		target_label = "scope"
+		replacement  = "infra"
+	}
+}
+
+prometheus.scrape "infra" {
+	targets         = discovery.relabel.infra.output
+	scrape_interval = "30s"
+	forward_to      = [prometheus.relabel.infra.receiver]
+}
+
+// What the dashboard and the alerts use; ZFS and vmstat alone would be several
+// hundred series a host otherwise.
+prometheus.relabel "infra" {
+	forward_to = [prometheus.remote_write.telemetry.receiver]
+
+	rule {
+		source_labels = ["__name__"]
+		regex         = "infra_.+|node_(boot_time_seconds|cpu_seconds_total|disk_(io_time_seconds|read_bytes|written_bytes)_total|filesystem_(avail_bytes|readonly|size_bytes)|hwmon_(chip_names|sensor_label|temp_celsius|temp_crit_celsius)|load(1|5|15)|md_state|memory_(MemAvailable|MemTotal|SwapFree|SwapTotal)_bytes|network_(receive|transmit)_(bytes|errs)_total|textfile_scrape_error|thermal_zone_temp|time_seconds|uname_info|vmstat_oom_kill|zfs_(arc_c_min|arc_size|zpool_state))"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__name__", "mode"]
+		regex         = "node_cpu_seconds_total;(irq|nice|softirq|steal|system|user)"
+		action        = "drop"
+	}
+
+	// infra_host_info{rack, type, release, machine}: joined in panels, so a new
+	// rack name starts no new series elsewhere.
+	rule {
+		source_labels = ["__name__"]
+		regex         = "node_uname_info"
+		target_label  = "rack"
+		replacement   = coalesce(sys.env("AGENT_RACK"), "none")
+	}
+
+	rule {
+		source_labels = ["__name__"]
+		regex         = "node_uname_info"
+		target_label  = "type"
+		replacement   = coalesce(sys.env("AGENT_TYPE"), "linux")
+	}
+
+	rule {
+		source_labels = ["__name__"]
+		regex         = "node_uname_info"
+		target_label  = "__name__"
+		replacement   = "infra_host_info"
+	}
+
+	rule {
+		action = "labeldrop"
+		regex  = "domainname|nodename|version|sysname"
+	}
+}

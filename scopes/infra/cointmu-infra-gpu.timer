@@ -1,0 +1,11 @@
+# /etc/systemd/system/cointmu-infra-gpu.timer (scopes/infra/README.md).
+[Unit]
+Description=Write GPU metrics every 30 s
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

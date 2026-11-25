@@ -1,0 +1,11 @@
+# /etc/systemd/system/cointmu-infra-pve.timer (scopes/infra/README.md).
+[Unit]
+Description=Write Proxmox metrics every 60 s
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

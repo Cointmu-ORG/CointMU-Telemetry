@@ -4,6 +4,7 @@
 #   tool <command>                  must exist on the host
 #   want <command>                  warning only if missing
 #   env <KEY> [required]            goes to /etc/default/alloy
+#   setenv <KEY> <value>            the same, with a fixed value
 #   readable <KEY>                  files of this setting must be readable by user alloy
 #   user <name>                     system user of a collector
 #   conf <dest> <KEY>...            KEY=value file, written only if absent

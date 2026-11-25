@@ -69,10 +69,7 @@ as long as the group or the directory is missing or wrong.
 ### On the telemetry VM
 
 ```bash
-scripts/agent-cred.sh add <host>-1            # log login: prints the password once
-scripts/agent-cred.sh add <host>-1 metrics    # metrics login: prints its password once
-echo '<UPS_HOST_IP> 1;' >> nginx/local/agent-allow.conf && docker compose exec proxy nginx -s reload
-# Grafana's #ups webhook (a different one from the host's):
+# Logins and the allowlist: scripts/enroll.sh, below. Grafana's #ups webhook (a different one from the host's):
 nano .env        # DISCORD_WEBHOOK_UPS=https://discord.com/api/webhooks/...
 docker compose up -d grafana
 ```

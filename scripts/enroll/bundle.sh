@@ -52,12 +52,15 @@ vm_url() {
 
 # $1 stage folder, $2 logins: the bundle's own part of /etc/default/alloy.
 write_alloy_env() {
-  local url key
+  local url key value
   url=$(vm_url)
   {
     echo "AGENT_HOST=\"$h_host\""
     if [[ " $2" == *" logs "* ]]; then echo "LOKI_PUSH_URL=\"$url/loki/api/v1/push\""; echo "LOKI_PUSH_USER=\"$h_login\""; fi
     if [[ " $2" == *" metrics "* ]]; then echo "METRICS_PUSH_URL=\"$url/prometheus/api/v1/write\""; echo "METRICS_PUSH_USER=\"$h_login\""; fi
+    echo "AGENT_TYPE=\"$h_type\""
+    echo "AGENT_RACK=\"${h_rack:-none}\""
+    while read -r key value; do echo "$key=\"$value\""; done < <(manifest_lines setenv "${h_scopes//,/ }" "$h_type")
     while read -r key _; do
       if [[ -n "${SETTINGS[$key]:-}" ]]; then echo "$key=\"${SETTINGS[$key]}\""; fi
     done < <(manifest_lines env "${h_scopes//,/ }" "$h_type")
