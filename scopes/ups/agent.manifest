@@ -1,0 +1,17 @@
+# Scope ups (directives: scopes/cointmu/agent.manifest). Alloy and the metrics
+# collector only; NUT and the Discord notifier (path A) stay manual
+# (README.md). No logs check: NUT may log nothing for days.
+logins logs metrics
+tool upsc
+env UPS_NAME required
+env NUT_DRIVER_UNIT
+env NUT_SERVER_UNIT
+env NUT_MONITOR_UNIT
+user cointmu-ups
+conf /etc/cointmu-ups/cointmu-ups.conf UPS HOST_LABEL
+file scopes/ups/ups-metrics.sh /usr/local/lib/cointmu-ups/ups-metrics.sh 755
+tmpfiles scopes/ups/cointmu-ups.tmpfiles.conf
+unit scopes/ups/cointmu-ups-metrics.service
+timer scopes/ups/cointmu-ups-metrics.timer
+fragment scopes/ups/ups.alloy
+verify metrics ups_up{scope="ups",host="HOST"}

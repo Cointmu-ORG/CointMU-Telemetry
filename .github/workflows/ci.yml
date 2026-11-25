@@ -77,9 +77,12 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh agent/*.sh
+          scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh agent/*.sh
           scopes/cointmu/alloy/check-redaction.sh
           scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
+
+      # enroll.sh together with the files it sources.
+      - run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" -x -a scripts/enroll.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
   alloy:
@@ -256,6 +259,15 @@ jobs:
       - run: scopes/ups/check-notify.sh
 
       - run: scopes/ups/check-ups.sh
+
+  # enroll.sh against a throwaway stack: logins, allowlist, bundle, TTL, remove.
+  enroll:
+    name: enroll
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: scripts/check-enroll.sh
 
   # Agents move from the old single config to the fragments on the same data
   # folder: no line lost, none twice.

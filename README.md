@@ -200,7 +200,7 @@ request would look like the same internal address.
 | | |
 |---|---|
 | Database | `scripts/backup.sh`, daily: `backup/glitchtip-<UTC>.sql.gz`, checked with `gzip -t` before it gets its final name. It stays on the VM (mode 600, folder 700), and an age-encrypted copy goes to `backup/offsite/` |
-| Configuration | `scripts/backup-config.sh`: `.env`, `certs/` and `nginx/local/` as one encrypted bundle in `backup/offsite/`, newest 8 kept. Together they hold every secret of the deployment, including the TLS key behind the app's pin |
+| Configuration | `scripts/backup-config.sh`: `.env`, `certs/`, `nginx/local/` and `inventory/` as one encrypted bundle in `backup/offsite/`, newest 8 kept. Together they hold every secret of the deployment, including the TLS key behind the app's pin |
 | Off the VM | Only `backup/offsite/`. Everything there is encrypted to `BACKUP_AGE_RECIPIENT` (a public key in `.env`); the private key is kept offline, never on the VM |
 | Retention | Every dump from the last 7 days plus Sunday dumps for 28 days, on the VM and in `offsite/` |
 | RPO | 24 hours (one dump a day) |

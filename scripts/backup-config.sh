@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Writes this VM's git-ignored configuration (.env, certs/, nginx/local/) as an
+# Writes this VM's git-ignored configuration (.env, certs/, nginx/local/, inventory/) as an
 # age-encrypted bundle, backup/offsite/config-<UTC time>.tar.gz.age, and keeps
 # the newest 8. These files hold every secret of the deployment: the TLS key
 # behind the app's pin, the database password, the agent logins and the
@@ -16,7 +16,10 @@ cd "$(dirname "$0")/.."
 readonly OFFSITE_DIR=backup/offsite
 readonly ENV_FILE=.env
 readonly KEEP_BUNDLES=8
-readonly CONFIG_PATHS=(.env certs nginx/local)
+config_paths=(.env certs nginx/local)
+# The enrolled hosts, once there are any (scripts/enroll.sh).
+if [[ -d inventory ]]; then config_paths+=(inventory); fi
+readonly config_paths
 # age1 followed by 58 bech32 characters.
 readonly RECIPIENT_PATTERN='^age1[02-9ac-hj-np-z]{58}$'
 
@@ -27,7 +30,7 @@ recipient=$(sed -n 's/^BACKUP_AGE_RECIPIENT=//p' "$ENV_FILE")
 [[ "$recipient" =~ $RECIPIENT_PATTERN ]] \
   || die "BACKUP_AGE_RECIPIENT in $ENV_FILE is empty or not an age public key (age1...)"
 command -v age >/dev/null || die "age is not installed (sudo apt install age)"
-for path in "${CONFIG_PATHS[@]}"; do
+for path in "${config_paths[@]}"; do
   [[ -e "$path" ]] || die "missing $path"
 done
 
@@ -36,7 +39,7 @@ mkdir -p "$OFFSITE_DIR"
 chmod 700 backup "$OFFSITE_DIR"
 target="$OFFSITE_DIR/config-$(date -u +%Y%m%dT%H%M%SZ).tar.gz.age"
 
-tar -czf - "${CONFIG_PATHS[@]}" | age -r "$recipient" -o "$target.partial"
+tar -czf - "${config_paths[@]}" | age -r "$recipient" -o "$target.partial"
 mv "$target.partial" "$target"
 echo "wrote $target"
 

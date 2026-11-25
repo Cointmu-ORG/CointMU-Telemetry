@@ -1,0 +1,24 @@
+# What enroll.sh puts into a bundle for scope cointmu and install-agent.sh
+# installs. One directive per line; "on:<types>" limits a line to host types.
+#   logins <logs|metrics>...        logins the scope needs
+#   tool <command>                  must exist on the host
+#   want <command>                  warning only if missing
+#   env <KEY> [required]            goes to /etc/default/alloy
+#   user <name>                     system user of a collector
+#   conf <dest> <KEY>...            KEY=value file, written only if absent
+#   file <src> <dest> <mode>        root:root
+#   tmpfiles <src>  unit <src>  timer <src>  fragment <src>
+#   verify <metrics|logs> <query>   must return data; HOST is replaced
+logins logs metrics
+tool python3
+env GETH_LOG_FILES
+env GETH_JOURNAL_UNIT
+user cointmu-chain
+conf /etc/cointmu-chain/cointmu-chain.conf NODES
+file scopes/cointmu/chain/chain-metrics.py /usr/local/lib/cointmu-chain/chain-metrics.py 755
+tmpfiles scopes/cointmu/chain/cointmu-chain.tmpfiles.conf
+unit scopes/cointmu/chain/cointmu-chain-metrics.service
+timer scopes/cointmu/chain/cointmu-chain-metrics.timer
+fragment scopes/cointmu/alloy/cointmu.alloy
+verify metrics cointmu_chain_rpc_up{scope="cointmu",host="HOST"}
+verify logs {job="geth",scope="cointmu",host="HOST"}

@@ -1,0 +1,6 @@
+# The Alloy package every host gets (install-agent.sh), checked by enroll.sh
+# fetch-alloy on the VM and again on the host. Same version as ALLOY_IMAGE in
+# scopes/cointmu/alloy/check-redaction.sh. Bump: RUNBOOK.md, "Upgrade Alloy".
+VERSION=1.21.0-1
+SHA256_amd64=d27431dbc2690ed7bc191e339fe4ee73a46973e203a5c50d7b69cafb6aa9ce84
+SHA256_arm64=9b6ced9a5e1e3c72aaf55d8184d7dc555ed74d3a897cde487fb44ab8d048a8a1
