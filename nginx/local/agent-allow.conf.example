@@ -8,6 +8,6 @@
 # laptops on the campus LAN must get 403 here.
 # <SERVER_SUBNET> 1;       e.g. 10.0.1.0/24 1;
 # <SERVER_IP> 1;           e.g. 10.0.1.20 1;
-# <UPS_HOST_IP> 1;         the Proxmox host with the UPS (agents/ups/)
+# <UPS_HOST_IP> 1;         the Proxmox host with the UPS (scopes/ups/)
 # Nodes pushing over Tailscale: their tailnet IP, not the whole 100.64.0.0/10.
 # <NODE_TAILNET_IP> 1;     e.g. 100.101.102.104 1;

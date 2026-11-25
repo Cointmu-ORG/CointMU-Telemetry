@@ -1,6 +1,6 @@
 // Grafana Alloy on a geth node server: reads the geth logs, labels them,
 // redacts peer addresses and node IDs, and pushes them to the telemetry VM's
-// Loki endpoint. It also pushes the chain metrics that agents/chain/ writes
+// Loki endpoint. It also pushes the chain metrics that scopes/cointmu/chain/ writes
 // to Prometheus, with its own login. Settings come from /etc/default/alloy
 // (alloy.env.example). Needs --stability.level=experimental for the
 // write-ahead log (WAL).
@@ -154,8 +154,8 @@ loki.write "telemetry" {
 	}
 }
 
-// --- Metrics: chain.prom from agents/chain/chain-metrics.py -----------------
-// Install this config only after agents/chain/alloy-preflight.sh passes: without
+// --- Metrics: chain.prom from scopes/cointmu/chain/chain-metrics.py -----------------
+// Install this config only after scopes/cointmu/chain/alloy-preflight.sh passes: without
 // the metrics password or METRICS_PUSH_*, Alloy still runs and ships logs, but
 // every metrics batch fails with a warning only.
 

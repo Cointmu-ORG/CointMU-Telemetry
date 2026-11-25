@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Writes the UPS's state for Alloy's textfile collector as
 # /var/lib/cointmu-ups/ups.prom (Prometheus text format). Run every 15 s by
-# cointmu-ups-metrics.timer as the cointmu-ups user (agents/ups/README.md).
+# cointmu-ups-metrics.timer as the cointmu-ups user (scopes/ups/README.md).
 #
 #   ups-metrics.sh
 #

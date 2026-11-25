@@ -5,7 +5,7 @@ Prometheus through the same Alloy agent that ships its geth logs:
 
 ```
 geth HTTP RPC ─127.0.0.1─▶ chain-metrics.py (timer, 15 s) → chain.prom ─▶ Alloy ──HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ──▶ Grafana "Chain"
-  (each geth process         textfile collector                (agents/alloy/config.alloy)                                                           + alerts → #block-update
+  (each geth process         textfile collector                (scopes/cointmu/alloy/config.alloy)                                                           + alerts → #block-update
    on the host)
 ```
 
@@ -53,8 +53,8 @@ There is no per-miner hashrate: geth 1.10.26 answers `eth_hashrate` with 0 on th
 
 ## Install
 
-Copy this folder and `agents/alloy/` to the node. Alloy is already installed there for the geth
-logs (agents/alloy/README.md), so the `alloy` group exists. Commands with `sudo` go in your own
+Copy this folder and `scopes/cointmu/alloy/` to the node. Alloy is already installed there for the geth
+logs (scopes/cointmu/alloy/README.md), so the `alloy` group exists. Commands with `sudo` go in your own
 terminal; on CT 106 that is the `server106` admin login, not `cointmu`.
 
 **Order matters.** The new `config.alloy` goes in last and only after `alloy-preflight.sh` passes.
@@ -127,7 +127,7 @@ last-block age under a minute.
 
 ## Changing it
 
-`agents/chain/check-chain.sh`: a throwaway copy of the stack plus a fake node, with stub RPCs,
+`scopes/cointmu/chain/check-chain.sh`: a throwaway copy of the stack plus a fake node, with stub RPCs,
 running `chain-metrics.py`. It checks:
 - the owner/mode table, the refusal messages and `alloy-preflight.sh`
 - `promtool check metrics`, every dashboard panel, and each chain rule per scenario (behind, no

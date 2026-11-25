@@ -7,7 +7,7 @@
 # Its lines go to host="redaction-check-<time>"; a delete request removes them
 # (Loki's compactor deletes them within about two hours).
 #
-#   agents/alloy/check-redaction.sh
+#   scopes/cointmu/alloy/check-redaction.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -20,7 +20,7 @@ HOST_LABEL="redaction-check-$(date +%s)"
 readonly HOST_LABEL
 readonly CONTAINER="alloy-redaction-check-$$"
 
-loki_id=$(cd ../.. && docker compose ps -q loki)
+loki_id=$(cd ../../.. && docker compose ps -q loki)
 [[ -n "$loki_id" ]] || { echo "loki is not running (docker compose up -d loki)" >&2; exit 1; }
 network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' "$loki_id")
 

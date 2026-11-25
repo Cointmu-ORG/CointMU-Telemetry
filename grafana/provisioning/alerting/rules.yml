@@ -1,7 +1,7 @@
 # Alert rules on the geth node logs, sent to #node-logs (policies.yml), on
 # the UPS metrics (group ups below), sent to #ups, and on the chain metrics
 # (group chain below), sent to #block-update. Every geth query skips
-# host="redaction-check-*", the test lines that agents/alloy/check-redaction.sh
+# host="redaction-check-*", the test lines that scopes/cointmu/alloy/check-redaction.sh
 # pushes. Literal "$" in this file would be read as an environment variable.
 #
 # Each geth rule is A (Loki, instant query) -> B (last value per series) -> C
@@ -112,7 +112,7 @@ groups:
               expression: B
               conditions: [{ evaluator: { type: lt, params: [1] } }]
 
-  # UPS metrics from the UPS host (agents/ups/), sent to #ups (policies.yml,
+  # UPS metrics from the UPS host (scopes/ups/), sent to #ups (policies.yml,
   # label source=ups). The host posts every power event itself (on battery,
   # back on mains, low battery, shutdown) within 30 s; these rules add only
   # what needs a threshold or what the host cannot report about itself, so
@@ -301,7 +301,7 @@ groups:
               expression: B
               conditions: [{ evaluator: { type: lt, params: [1] } }]
 
-  # Chain metrics from the geth node servers (agents/chain/), sent to
+  # Chain metrics from the geth node servers (scopes/cointmu/chain/), sent to
   # #block-update (policies.yml, label source=chain). Each rule is A
   # (Prometheus, instant) -> B (last value per series) -> C (threshold on B);
   # the message shows B. Blocks come about every 14 s.

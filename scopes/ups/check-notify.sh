@@ -8,7 +8,7 @@
 # posts are sent before SHUTDOWNCMD runs (also with a slow Discord).
 # Takes about two minutes.
 #
-#   agents/ups/check-notify.sh
+#   scopes/ups/check-notify.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"

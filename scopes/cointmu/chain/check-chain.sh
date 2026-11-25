@@ -5,7 +5,7 @@
 # it never touches a running deployment and runs anywhere with Docker.
 #
 # A fake geth node (testdata/node-host.sh: stub RPCs, chain-metrics.py, the
-# owner/mode and preflight checks) feeds agents/alloy/config.alloy, which
+# owner/mode and preflight checks) feeds scopes/cointmu/alloy/config.alloy, which
 # pushes the metrics through nginx. Checks:
 # - chain.prom passes promtool check metrics
 # - every chain.json panel query returns data
@@ -15,14 +15,14 @@
 #   stopped while Alloy keeps scraping: "stale" fires, "missing" does not
 # - Alloy without /etc/alloy/metrics-password keeps running and shipping
 #   logs, and its log names the missing file
-# The nginx endpoint itself is checked by agents/ups/check-ups.sh.
+# The nginx endpoint itself is checked by scopes/ups/check-ups.sh.
 # Takes about five minutes.
 #
-#   agents/chain/check-chain.sh
+#   scopes/cointmu/chain/check-chain.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"
-ROOT_DIR="$(cd ../.. && pwd)"
+ROOT_DIR="$(cd ../../.. && pwd)"
 readonly ROOT_DIR
 ALLOY_IMAGE=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' ../alloy/check-redaction.sh)
 readonly ALLOY_IMAGE
@@ -47,7 +47,7 @@ compose() { docker compose -p "$PROJECT" -f "$ROOT_DIR/compose.yml" -f "$work/ov
 in_logs() { docker exec "$PROJECT-logs-probe" "$@"; }
 queries() {
   in_logs env RULE_GROUP=chain DASHBOARD=/repo/grafana/dashboards/chain.json \
-    python3 /repo/agents/ups/testdata/ups_queries.py "$@"
+    python3 /repo/scopes/ups/testdata/ups_queries.py "$@"
 }
 rule() { queries rules "${2:-0}" | sed -n "s/^$1 //p"; }
 value() { queries value "$1"; }
@@ -151,7 +151,7 @@ start_alloy() {
     -e AGENT_HOST="$host" -e GETH_LOG_FILES=/logs/cointmu-miner-error.log -e GETH_JOURNAL_UNIT= \
     -e LOKI_PUSH_URL=https://proxy:8443/loki/api/v1/push -e LOKI_PUSH_USER=chain-check-logs \
     -e METRICS_PUSH_URL=https://proxy:8443/prometheus/api/v1/write -e METRICS_PUSH_USER=chain-check-metrics \
-    -v "$ROOT_DIR/agents/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
+    -v "$ROOT_DIR/scopes/cointmu/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
     -v "$work/alloy/push-password:/etc/alloy/push-password:ro" "${password_mount[@]}" \
     -v "$work/alloy/telemetry.crt:/etc/alloy/telemetry.crt:ro" \
     -v "$logs:/logs" -v "$PROJECT-textfile:/var/lib/cointmu-chain:ro" \
@@ -205,7 +205,7 @@ check_missing_password() {
   docker rm -f "$PROJECT-nopw" >/dev/null
 }
 
-docker build -q -t "$TEST_IMAGE" ../ups/testdata >/dev/null
+docker build -q -t "$TEST_IMAGE" ../../ups/testdata >/dev/null
 prepare
 start_stack
 start_host

@@ -275,7 +275,7 @@ cron saw. Its state is in `state/healthcheck/` (one file per failing check that 
 
 **#app-errors** (GlitchTip, each new issue once): open the issue link from the campus LAN.
 
-**#ups from the UPS host** (`ups-notify.sh`, one message per transition; agents/ups/README.md):
+**#ups from the UPS host** (`ups-notify.sh`, one message per transition; scopes/ups/README.md):
 
 | Message | Meaning, first steps |
 |---|---|
@@ -298,7 +298,7 @@ cron saw. Its state is in `state/healthcheck/` (one file per failing check that 
 | UPS metrics stale | `ups-metrics.sh` or its timer stopped, so the graphs show old values. `systemctl status cointmu-ups-metrics.timer cointmu-ups-metrics.service` and `journalctl -u cointmu-ups-metrics -n 20` on the host (it names a wrong directory group or mode) |
 | UPS data missing | Nothing from the UPS host for 5 min: the host is down, Alloy stopped, the network is down, or the push is refused. "Logs are not arriving" below applies to the metrics push as well (`journalctl -u alloy` on the host: 401/403). After a power-fail shutdown it fires until the host is back. On a fresh deployment it fires until the host ships metrics |
 
-**#block-update from Grafana** (chain metrics, agents/chain/; repeats at most every 12 h; one message
+**#block-update from Grafana** (chain metrics, scopes/cointmu/chain/; repeats at most every 12 h; one message
 when resolved). Dashboard "Chain"; node commands as the node's user in `~/cointmu-network`:
 
 | Rule | Meaning, first steps |
@@ -436,7 +436,7 @@ on start. For a Prometheus **major** upgrade (3 → 4), read its migration guide
 ## Upgrade Alloy on a node
 
 Alloy is held at a pinned version because the WAL is experimental. On a workstation first, set
-`ALLOY_IMAGE` in `agents/alloy/check-redaction.sh` to the new version and run it. Then on each node:
+`ALLOY_IMAGE` in `scopes/cointmu/alloy/check-redaction.sh` to the new version and run it. Then on each node:
 
 ```bash
 # <version> from apt-cache madison alloy, e.g. 1.22.0-1; confold keeps our /etc/default/alloy
@@ -576,7 +576,7 @@ copy is disabled. The old cron line, which copies all of `backup/`, keeps workin
 ## Moving to UPS monitoring (deployments from before it)
 
 The pieces came in this order; do the steps that are not done yet, in order. Host steps are in
-[agents/ups/README.md](agents/ups/README.md).
+[scopes/ups/README.md](scopes/ups/README.md).
 
 1. **Discord from the UPS host (path A).** Nothing changes on the VM. On the UPS host: "Discord
    notifier", which also starts `upsmon`, monitor-only.
@@ -609,7 +609,7 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
 ## Moving to chain metrics (deployments from before it)
 
 Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node steps are in
-[agents/chain/README.md](agents/chain/README.md); one host at a time, with your ACC for each.
+[scopes/cointmu/chain/README.md](scopes/cointmu/chain/README.md); one host at a time, with your ACC for each.
 
 0. **Discord.** Create a webhook in #block-update and put it in `.env` as
    `DISCORD_WEBHOOK_BLOCK_UPDATE` (empty = off). Test it with README.md "Alerts", step 1.
@@ -622,7 +622,7 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
    ```
    The chain rules stay quiet until a node sends its first sample ("missing" needs a sample in the
    last 24 h), so the order of the host steps does not page anyone.
-2. **CT 106.** "Metrics collector", then "Alloy" (agents/chain/README.md, steps 3 and 4). The new
+2. **CT 106.** "Metrics collector", then "Alloy" (scopes/cointmu/chain/README.md, steps 3 and 4). The new
    `config.alloy` goes in only after `alloy-preflight.sh` passes.
 3. **server101.** Step 1 there first: HTTP RPC for the miner, one soft `pm2 restart cointmu-miner`
    while CT 106 keeps mining. Then steps 3 and 4 with both roles in NODES.
@@ -645,7 +645,7 @@ docker compose exec grafana wget -qO- http://loki:3100/ready     # "ready"
 1. `scripts/agent-cred.sh add <host>-1` (prints the password once).
 2. Add the node's address to `nginx/local/agent-allow.conf` (`<ip> 1;`), then
    `docker compose exec proxy nginx -s reload`.
-3. Install Alloy on the node: [agents/alloy/README.md](agents/alloy/README.md).
+3. Install Alloy on the node: [scopes/cointmu/alloy/README.md](scopes/cointmu/alloy/README.md).
 
 ### Rotate an agent login
 
