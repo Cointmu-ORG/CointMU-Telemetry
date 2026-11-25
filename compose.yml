@@ -177,6 +177,9 @@ services:
       DISCORD_WEBHOOK_UPS: ${DISCORD_WEBHOOK_UPS:-https://discord.invalid/webhook-not-configured}
       # #block-update webhook for the chain rules, same fallback.
       DISCORD_WEBHOOK_BLOCK_UPDATE: ${DISCORD_WEBHOOK_BLOCK_UPDATE:-https://discord.invalid/webhook-not-configured}
+      # #infra webhook: platform rules and rules without a known scope. The same
+      # one scripts/healthcheck.sh reads, same fallback.
+      DISCORD_WEBHOOK_INFRA: ${DISCORD_WEBHOOK_INFRA:-https://discord.invalid/webhook-not-configured}
     volumes:
       # Grafana reads provisioning/alerting without subfolders, so each scope's
       # files are mounted into it one by one. After a git pull that changed one
@@ -184,6 +187,7 @@ services:
       - { type: bind, source: ./grafana/provisioning/datasources, target: /etc/grafana/provisioning/datasources, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./grafana/provisioning/dashboards, target: /etc/grafana/provisioning/dashboards, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./grafana/provisioning/alerting/policies.yml, target: /etc/grafana/provisioning/alerting/policies.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./grafana/provisioning/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/platform-contact-points.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./grafana/provisioning/alerting/templates.yml, target: /etc/grafana/provisioning/alerting/templates.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/cointmu/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/cointmu-rules.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/cointmu/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/cointmu-contact-points.yml, read_only: true, bind: { create_host_path: false } }

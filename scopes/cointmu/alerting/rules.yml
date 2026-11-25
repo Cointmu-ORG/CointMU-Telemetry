@@ -27,6 +27,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
+        labels: { scope: cointmu }
         annotations:
           count_meaning: lines in the last 24 h, none in the last 15 min
         data:
@@ -59,6 +60,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
+        labels: { scope: cointmu }
         annotations:
           count_meaning: fatal/crit lines in the last 5 min
         data:
@@ -91,6 +93,7 @@ groups:
         for: 5m
         noDataState: Alerting
         execErrState: Alerting
+        labels: { scope: cointmu }
         annotations:
           count_meaning: 'lines from all hosts in the last 15 min ("-": Loki did not answer or nothing arrived)'
         data:
@@ -114,7 +117,7 @@ groups:
               conditions: [{ evaluator: { type: lt, params: [1] } }]
 
   # Chain metrics from the geth node servers (scopes/cointmu/chain/), sent to
-  # #block-update (policies.yml, label source=chain). Each rule is A
+  # #block-update (policies.yml, labels scope=cointmu and source=chain). Each rule is A
   # (Prometheus, instant) -> B (last value per series) -> C (threshold on B);
   # the message shows B. Blocks come about every 14 s.
   - orgId: 1
@@ -133,7 +136,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "s since the newest block on any node (limit 600)"
         data:
@@ -160,7 +163,7 @@ groups:
         for: 5m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "peers"
         data:
@@ -188,7 +191,7 @@ groups:
         for: 5m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "blocks behind the highest node (limit 10)"
         data:
@@ -222,7 +225,7 @@ groups:
         for: 3m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "(0 = the node's RPC does not answer)"
         data:
@@ -251,7 +254,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "s between the scrape and the file's content (limit 60)"
         data:
@@ -288,7 +291,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: chain }
+        labels: { scope: cointmu, source: chain }
         annotations:
           value_meaning: "s since the node's last metrics (none in 5 min)"
         data:

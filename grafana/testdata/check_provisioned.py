@@ -6,7 +6,8 @@ network, with the checkout mounted at /checkout.
     check_provisioned.py verify <before>   fails unless Grafana serves exactly
                                            the checkout's dashboards, rules and
                                            contact points, each once and in its
-                                           scope's folder, and every UID of
+                                           scope's folder, every rule has
+                                           a routed scope label, and every UID of
                                            <before> (a "state" file) that the
                                            checkout still has kept its UID
     check_provisioned.py title <rule uid>  prints the title Grafana serves
@@ -23,6 +24,7 @@ import yaml
 
 API = "http://grafana:3000/grafana/api"
 CHECKOUT = pathlib.Path("/checkout")
+POLICIES = CHECKOUT / "grafana/provisioning/alerting/policies.yml"
 PROVIDERS = CHECKOUT / "grafana/provisioning/dashboards/scopes.yml"
 TIMEOUT_SECONDS = 15
 
@@ -45,7 +47,15 @@ def served() -> dict:
 
 
 def alerting_files(kind: str) -> list:
-    return [yaml.safe_load(path.read_text()) for path in sorted(CHECKOUT.glob(f"scopes/*/alerting/{kind}.yml"))]
+    paths = [*CHECKOUT.glob(f"grafana/provisioning/alerting/{kind}.yml"), *CHECKOUT.glob(f"scopes/*/alerting/{kind}.yml")]
+    return [yaml.safe_load(path.read_text()) for path in sorted(paths)]
+
+
+def unrouted_rules() -> list:
+    policy = yaml.safe_load(POLICIES.read_text())["policies"][0]
+    routed = {value for route in policy["routes"] for name, op, value in route["object_matchers"] if name == "scope"}
+    rules = [r for content in alerting_files("rules") for g in content["groups"] for r in g["rules"]]
+    return sorted(r["uid"] for r in rules if r.get("labels", {}).get("scope") not in routed)
 
 
 def expected() -> dict:
@@ -69,6 +79,8 @@ def verify(before: dict) -> list:
     missing = set(want["contact_points"]) - set(now["contact_points"])
     if missing:
         errors.append(f"contact points missing: {sorted(missing)}")
+    if unrouted_rules():
+        errors.append(f"rules without a routed scope label: {unrouted_rules()}")
     if len(now["folders"]) != len(set(now["folders"])):
         errors.append(f"duplicate folder titles: {now['folders']}")
     for kind in ("dashboards", "rules"):

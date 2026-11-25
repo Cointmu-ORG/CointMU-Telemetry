@@ -1,0 +1,19 @@
+# Platform alerts (and rules without a known scope, policies.yml) to #infra, next
+# to scripts/healthcheck.sh. The webhook URL comes from .env through compose.yml,
+# with the same placeholder as the scopes' contact points
+# (scopes/cointmu/alerting/contact-points.yml says why). Literal "$" in this
+# file would be read as an environment variable.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: discord-infra
+    receivers:
+      - uid: discord-infra
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: $DISCORD_WEBHOOK_INFRA
+          use_discord_username: false
+          use_embed_description: true
+          title: '{{ template "cointmu.title" . }}'
+          message: '{{ template "cointmu.infra_message" . }}'

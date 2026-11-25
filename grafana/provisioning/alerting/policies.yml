@@ -1,19 +1,26 @@
-# Rules labelled source=ups go to #ups, source=chain to #block-update,
-# everything else (the log rules) to #node-logs; one message per rule and host
-# (and UPS or role). A firing alert is repeated at most
-# every 12 hours; resolving it sends one message.
+# Every rule carries a static label scope (scopes/<name>/alerting/rules.yml),
+# which picks the Discord channel: cointmu to #node-logs, its chain rules
+# (source=chain) to #block-update, ups to #ups. A rule without a known scope
+# goes to #infra, so a forgotten label shows up there and not in a channel of
+# another scope. One message per rule and host (and UPS or role). A firing
+# alert is repeated at most every 12 hours; resolving it sends one message.
+#
+# One tree per Grafana org, so it is not split per scope.
 apiVersion: 1
 policies:
   - orgId: 1
-    receiver: discord-node-logs
+    receiver: discord-infra
     group_by: [alertname, host]
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 12h
     routes:
+      - receiver: discord-node-logs
+        object_matchers: [[scope, "=", cointmu]]
+        routes:
+          - receiver: discord-chain
+            object_matchers: [[source, "=", chain]]
+            group_by: [alertname, host, role]
       - receiver: discord-ups
-        object_matchers: [[source, =, ups]]
+        object_matchers: [[scope, "=", ups]]
         group_by: [alertname, host, ups]
-      - receiver: discord-chain
-        object_matchers: [[source, =, chain]]
-        group_by: [alertname, host, role]
