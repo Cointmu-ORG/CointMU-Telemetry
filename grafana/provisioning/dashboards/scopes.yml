@@ -13,6 +13,13 @@ providers:
     disableDeletion: true
     options:
       path: /var/lib/grafana-dashboards/cointmu
+  - name: infra
+    folder: Infra
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana-dashboards/infra
   - name: ups
     folder: UPS
     type: file

@@ -195,6 +195,7 @@ services:
       - { type: bind, source: ./scopes/ups/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/ups-rules.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/ups/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/ups-contact-points.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/ups/dashboards, target: /var/lib/grafana-dashboards/ups, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/infra/dashboards, target: /var/lib/grafana-dashboards/infra, read_only: true, bind: { create_host_path: false } }
       - grafana-data:/var/lib/grafana
     read_only: true
     tmpfs: [/tmp]

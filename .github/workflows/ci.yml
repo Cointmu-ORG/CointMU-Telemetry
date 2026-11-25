@@ -80,7 +80,7 @@ jobs:
           -x scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
           agent/*.sh testing/*.sh
           scopes/cointmu/alloy/check-redaction.sh
-          scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
+          scopes/infra/*.sh scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
       # enroll.sh together with the files it sources.
       - run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" -x -a scripts/enroll.sh
@@ -270,23 +270,15 @@ jobs:
 
       - run: scripts/check-enroll.sh
 
-  # The infra collector against stub tools; its output as promtool sees it.
+  # Scope infra: the collector against stub tools, the dashboard's queries on
+  # synthetic series.
   infra:
     name: infra
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - run: |
-          mkdir prom
-          python3 scopes/infra/testdata/test_infra_metrics.py "$PWD/prom"
-
-      - name: promtool check metrics
-        run: |
-          image=$(sed -n 's|^ *image: \(prom/prometheus:.*\)$|\1|p' compose.yml)
-          for file in prom/*.prom; do
-            docker run --rm -i --entrypoint promtool "$image" check metrics < "$file"
-          done
+      - run: scopes/infra/check-infra.sh
 
   # enroll.sh and install-agent.sh end to end: throwaway hosts with systemd, on a
   # network without internet.

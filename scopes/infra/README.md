@@ -31,5 +31,8 @@ The sandbox of `cointmu-infra-pve.service` is looser than the others: `pvesm` ta
 storages. It is tested with stubs only; watch its first run on a real Proxmox host:
 `systemctl status cointmu-infra-pve.service` and `cat /var/lib/cointmu-infra/pve/pve.prom`.
 
-Tests: `scopes/infra/testdata/test_infra_metrics.py` (collector against stub tools) and
+**Dashboard** "Servers" (`dashboards/servers.json`): one table row per host, grouped by rack, and the details
+of the selected hosts. New hosts appear by themselves. Type "pve" is preselected.
+
+Tests: `check-infra.sh` (collector against stub tools, dashboard queries on synthetic series) and
 `agent/check-install.sh` (installed on a host with systemd).
