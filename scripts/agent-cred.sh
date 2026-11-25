@@ -6,6 +6,8 @@
 # a reload.
 #
 #   scripts/agent-cred.sh add <name> [logs|metrics]      new login; prints its password once
+#   scripts/agent-cred.sh add <name> <kind> <file>       new login; writes its password to the
+#                                                        new file (0600) instead, prints nothing
 #   scripts/agent-cred.sh revoke <name> [logs|metrics]   removes the login
 #
 # The kind defaults to logs. <name> is lowercase letters, digits, "." and "-",
@@ -27,7 +29,7 @@ readonly PASSWORD_BYTES=24
 # nginx's own GID in nginxinc/nginx-unprivileged, a system group on the host.
 readonly NGINX_IMAGE_GID=101
 
-usage() { sed -n '2,18p' "$0" >&2; exit 2; }
+usage() { sed -n '2,20p' "$0" >&2; exit 2; }
 die() { echo "$*" >&2; exit 1; }
 
 tls_gid() {
@@ -54,7 +56,7 @@ ensure_file() {
 
 has_login() { grep -q "^$1:" "$HTPASSWD"; }
 
-[[ $# -eq 2 || $# -eq 3 ]] || usage
+[[ $# -ge 2 && $# -le 4 ]] || usage
 name="$2"
 [[ "$name" =~ $NAME_PATTERN ]] || die "invalid name '$name' (see usage)"
 case "${3:-logs}" in
@@ -68,12 +70,22 @@ case "$1" in
   add)
     ensure_file
     has_login "$name" && die "login '$name' exists; add a new name to rotate (RUNBOOK.md)"
+    if [[ -n "${4:-}" ]]; then
+      # Before the login exists, so a file that cannot be created leaves nothing behind.
+      set -o noclobber
+      umask 077
+      exec 3> "$4"
+    fi
     password=$(openssl rand -base64 "$PASSWORD_BYTES")
     hash=$(openssl passwd -6 -stdin <<<"$password")
     printf '%s:%s\n' "$name" "$hash" >> "$HTPASSWD"
-    echo "login:    $name"
-    echo "password: $password"
-    echo "Put the password in $PASSWORD_FILE on the agent's host; it is not stored here."
+    if [[ -n "${4:-}" ]]; then
+      printf '%s' "$password" >&3
+    else
+      echo "login:    $name"
+      echo "password: $password"
+      echo "Put the password in $PASSWORD_FILE on the agent's host; it is not stored here."
+    fi
     ;;
   revoke)
     if [[ ! -f "$HTPASSWD" ]] || ! has_login "$name"; then

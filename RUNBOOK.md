@@ -27,6 +27,39 @@ restart` would miss the second.
 Never rename `/opt/CointMU-Telemetry` or change `name:` in `compose.yml`: the volumes carry that name, and
 a different one starts the stack with empty databases.
 
+## Enroll a host
+
+`scripts/enroll.sh` (usage in the file) creates the logins a host's scopes need, adds its allowlist
+line and writes a bundle with everything the host needs, so the host downloads nothing. Hosts are kept
+in `inventory/` on the VM: git-ignored, part of the encrypted config backup. Run it as the admin user,
+never with sudo.
+
+Once: `scripts/enroll.sh fetch-alloy amd64` (and `arm64` if needed; checks Grafana's key, the signed index
+and the pin in `agent/alloy.pin`), and an hourly cron line that removes old bundles:
+
+```cron
+17 * * * * cd /opt/CointMU-Telemetry && scripts/enroll.sh expire 2>&1 | logger -t cointmu-enroll
+```
+
+1. On the VM, for example:
+   ```bash
+   scripts/enroll.sh add <host> <ip> --scopes cointmu --ssh <user>@<alias> --set NODES=miner=http://127.0.0.1:8545
+   ```
+   `--type pve` is a Proxmox host (root SSH). `--type lxc` takes `--via <pve alias>:<ctid>` instead of
+   `--ssh`: the bundle goes through `pct push` on the Proxmox host. A host that already ships data:
+   `adopt` with `--login <its login>`; it keeps its passwords.
+2. Run the printed commands on your workstation, in order. They pipe the bundle over SSH, install it,
+   and end with `enroll.sh verify <host>`.
+3. `verify` names every scope that has no data yet. Once all have, the bundle is removed.
+
+The VM keeps the bundle until `verify` passes, at most 24 h, so after a broken pipe just run the same
+command again (`enroll.sh commands <host>` prints them). After 24 h, or if a bundle or password leaked:
+`scripts/enroll.sh reissue <host>` (`--leaked` revokes the old login at once, with a gap in the data), install,
+then `scripts/enroll.sh revoke-old <host>`.
+
+Remove a host: `install-agent.sh --uninstall` on the host, then `scripts/enroll.sh remove <host>`. Lines in
+`agent-allow.conf` that were written by hand are never touched.
+
 ## Key rotation (changes the pin)
 
 The app accepts only the public keys pinned in its build. Changing the server key before
@@ -643,10 +676,7 @@ docker compose exec grafana wget -qO- http://loki:3100/ready     # "ready"
 
 ### Add a node agent
 
-1. `scripts/agent-cred.sh add <host>-1` (prints the password once).
-2. Add the node's address to `nginx/local/agent-allow.conf` (`<ip> 1;`), then
-   `docker compose exec proxy nginx -s reload`.
-3. Install Alloy on the node: [scopes/cointmu/alloy/README.md](scopes/cointmu/alloy/README.md).
+"Enroll a host" above.
 
 ### Rotate an agent login
 

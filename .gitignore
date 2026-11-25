@@ -4,6 +4,9 @@ certs/
 backup/
 # Per-host stamps (healthcheck state, off-VM backup stamp).
 state/
+# Enrolled hosts (names, addresses, racks; scripts/enroll.sh), in the encrypted
+# config backup instead.
+inventory/
 *.key
 *.sql.gz
 # Per-host nginx files (allowlists, agent logins); only the examples are tracked.
