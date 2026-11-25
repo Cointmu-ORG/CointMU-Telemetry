@@ -1,0 +1,106 @@
+// Scope ups on the UPS host (a Proxmox node): ships the NUT daemons' journal
+// (job="ups") and the UPS metrics from ups-metrics.sh. Installed as
+// /etc/alloy/conf.d/ups.alloy next to the push components
+// (agent/push-logs.alloy, agent/push-metrics.alloy); Alloy loads the folder as
+// one config. Settings come from /etc/default/alloy. Never rename a component:
+// its name is the key of its read positions on the host.
+
+// --- Logs: the NUT units' journal ------------------------------------------
+// "matches" is AND-only in this Alloy version, so one source per unit. The
+// unit names default to NUT 2.8 on Debian: the driver runs as
+// nut-driver@<UPS_NAME>.service (nut-driver-enumerator).
+// UPS_JOURNAL_PATH is empty (the system journal) except in check-ups.sh.
+
+loki.source.journal "nut_server" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_SERVER_UNIT"), "nut-server.service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+// upsmon, and upssched and ups-notify.sh, which upsmon starts.
+loki.source.journal "nut_monitor" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_MONITOR_UNIT"), "nut-monitor.service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+loki.source.journal "nut_driver" {
+	path          = sys.env("UPS_JOURNAL_PATH")
+	matches       = "_SYSTEMD_UNIT=" + coalesce(sys.env("NUT_DRIVER_UNIT"), "nut-driver@" + sys.env("UPS_NAME") + ".service")
+	labels        = {job = "ups"}
+	relabel_rules = loki.relabel.nut.rules
+	forward_to    = [loki.process.ups.receiver]
+}
+
+// unit from the systemd unit: nut-driver@myups.service -> nut-driver@myups.
+loki.relabel "nut" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		regex         = "(.+)\\.service"
+		target_label  = "unit"
+	}
+}
+
+loki.process "ups" {
+	stage.static_labels {
+		values = {ups = sys.env("UPS_NAME"), scope = "ups"}
+	}
+
+	// upsd logs client logins as user@<address>, upsmon names the upsd it
+	// talks to. Same expressions as the geth pipeline (scopes/cointmu/alloy/).
+	stage.replace {
+		expression = "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b"
+		replace    = "<ip>"
+	}
+
+	// ponytail: IPv6 heuristic copied from scopes/cointmu/alloy/cointmu.alloy.
+	stage.replace {
+		expression = "((?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{0,4}::(?:[0-9a-fA-F]{1,4}:?){0,6})"
+		replace    = "<ip>"
+	}
+
+	forward_to = [loki.write.telemetry.receiver]
+}
+
+// --- Metrics: ups.prom from ups-metrics.sh ---------------------------------
+
+// Only the textfile collector: none of the host's other metrics leave it.
+prometheus.exporter.unix "ups" {
+	set_collectors = ["textfile"]
+
+	textfile {
+		directory = coalesce(sys.env("UPS_TEXTFILE_DIR"), "/var/lib/cointmu-ups")
+	}
+}
+
+// job="ups" for every series; host comes from remote_write.
+discovery.relabel "ups" {
+	targets = prometheus.exporter.unix.ups.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "ups"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = "ups"
+	}
+
+	rule {
+		target_label = "scope"
+		replacement  = "ups"
+	}
+}
+
+prometheus.scrape "ups" {
+	targets         = discovery.relabel.ups.output
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.telemetry.receiver]
+}

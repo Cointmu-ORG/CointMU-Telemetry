@@ -1,0 +1,45 @@
+// Shared by every scope that ships logs: the push to the telemetry VM's Loki
+// endpoint. Installed as /etc/alloy/conf.d/push-logs.alloy. Needs
+// --stability.level=experimental for the write-ahead log (WAL). Never rename
+// the component: its name is the key of the WAL on the host.
+loki.write "telemetry" {
+	endpoint {
+		// LOKI_PUSH_URL: https://<telemetry VM>/loki/api/v1/push
+		url = sys.env("LOKI_PUSH_URL")
+
+		basic_auth {
+			username      = sys.env("LOKI_PUSH_USER")
+			password_file = "/etc/alloy/push-password"
+		}
+
+		// The VM's self-signed certificate (certs/server.crt) is the only trust
+		// anchor. Never set insecure_skip_verify.
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+
+		// Retry 429 and 5xx forever while the WAL holds the backlog. Other 4xx
+		// (401, 403, 413) are not retried: that batch is dropped.
+		max_backoff_retries = 0
+		max_backoff_period  = "5m"
+
+		// Lines move from the WAL into this in-memory queue. If Alloy stops
+		// while the VM is unreachable, the queued batches are dropped and the
+		// WAL counts them as sent. Two batches (each at most a second of logs)
+		// keep the rest of the backlog on disk; the default 10 MiB would hold
+		// the whole outage in memory.
+		queue_config {
+			capacity = "2MiB"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
+	}
+
+	// Disk buffer for outages up to a day; older unsent segments are deleted.
+	wal {
+		enabled         = true
+		max_segment_age = "24h"
+	}
+}

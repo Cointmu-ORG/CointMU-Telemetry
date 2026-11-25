@@ -5,7 +5,7 @@ Prometheus through the same Alloy agent that ships its geth logs:
 
 ```
 geth HTTP RPC ─127.0.0.1─▶ chain-metrics.py (timer, 15 s) → chain.prom ─▶ Alloy ──HTTPS + login──▶ nginx /prometheus/api/v1/write ──▶ Prometheus ──▶ Grafana "Chain"
-  (each geth process         textfile collector                (scopes/cointmu/alloy/config.alloy)                                                           + alerts → #block-update
+  (each geth process         textfile collector                (scopes/cointmu/alloy/cointmu.alloy)                                                           + alerts → #block-update
    on the host)
 ```
 
@@ -24,7 +24,7 @@ in `~/cointmu-network/start-miner.sh` ("Install", step 1).
 | `cointmu-chain.conf.example` | `/etc/cointmu-chain/cointmu-chain.conf`, filled in | root:root 0644 (directory 0755; no secrets) |
 | `cointmu-chain-metrics.service`, `.timer` | `/etc/systemd/system/` | root:root 0644 |
 | `cointmu-chain.tmpfiles.conf` | `/etc/tmpfiles.d/cointmu-chain.conf` | root:root 0644 |
-| `../alloy/config.alloy` | `/etc/alloy/config.alloy` (replaces the log-only one) | root:root 0644 |
+| `../alloy/cointmu.alloy`, `agent/push-logs.alloy`, `agent/push-metrics.alloy` | `/etc/alloy/conf.d/` | root:root 0644 |
 | metrics password (`scripts/agent-cred.sh … metrics`) | `/etc/alloy/metrics-password` | root:alloy 0640 |
 
 `/var/lib/cointmu-chain` is `cointmu-chain:alloy 2750` and `chain.prom` `cointmu-chain:alloy 640`:
@@ -57,7 +57,7 @@ Copy this folder and `scopes/cointmu/alloy/` to the node. Alloy is already insta
 logs (scopes/cointmu/alloy/README.md), so the `alloy` group exists. Commands with `sudo` go in your own
 terminal; on CT 106 that is the `server106` admin login, not `cointmu`.
 
-**Order matters.** The new `config.alloy` goes in last and only after `alloy-preflight.sh` passes.
+**Order matters.** The new fragments go in last and only after `alloy-preflight.sh` passes.
 Alloy 1.21 keeps running without the metrics password or `METRICS_PUSH_*`, so the logs keep flowing,
 but then every metrics batch fails with only a warning in its journal.
 
@@ -115,8 +115,8 @@ down which one in RUNBOOK.md. The repository unit stays as it is.
 read -rsp 'metrics push password: ' PW; echo
 printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/metrics-password; unset PW
 sudoedit /etc/default/alloy    # add METRICS_PUSH_URL and METRICS_PUSH_USER (../alloy/alloy.env.example)
-sudo ./alloy-preflight.sh && sudo cp -p /etc/alloy/config.alloy /etc/alloy/config.alloy.bak \
-  && sudo install -m 644 ../alloy/config.alloy /etc/alloy/config.alloy && sudo systemctl restart alloy
+sudo ./alloy-preflight.sh && sudo install -d -m 755 /etc/alloy/conf.d \
+  && sudo install -m 644 ../alloy/cointmu.alloy push-logs.alloy push-metrics.alloy /etc/alloy/conf.d/ && sudo systemctl restart alloy
 journalctl -u alloy -n 50 --no-pager   # no "Failed to send batch", no 401/403
 curl -s 127.0.0.1:12345/metrics | grep -E '^(loki_write_sent_entries_total|prometheus_remote_storage_samples_total)'
 ```

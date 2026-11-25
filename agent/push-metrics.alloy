@@ -1,0 +1,24 @@
+// Shared by every scope that ships metrics: the push to the telemetry VM's
+// Prometheus endpoint, with its own login. Installed as
+// /etc/alloy/conf.d/push-metrics.alloy. Never rename the component: its name is
+// the key of the WAL on the host.
+prometheus.remote_write "telemetry" {
+	endpoint {
+		// METRICS_PUSH_URL: https://<telemetry VM>/prometheus/api/v1/write
+		url = sys.env("METRICS_PUSH_URL")
+
+		// Its own login (scripts/agent-cred.sh add <name> metrics).
+		basic_auth {
+			username      = sys.env("METRICS_PUSH_USER")
+			password_file = "/etc/alloy/metrics-password"
+		}
+
+		tls_config {
+			ca_file = "/etc/alloy/telemetry.crt"
+		}
+	}
+
+	external_labels = {
+		host = coalesce(sys.env("AGENT_HOST"), constants.hostname),
+	}
+}
