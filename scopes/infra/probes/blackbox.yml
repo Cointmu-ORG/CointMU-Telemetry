@@ -1,0 +1,22 @@
+# Probe modules of the blackbox exporter on the telemetry VM (compose.yml).
+# Targets: prometheus/probes/targets.json, written by scripts/enroll.sh.
+modules:
+  icmp:
+    prober: icmp
+    timeout: 5s
+    icmp: { preferred_ip_protocol: ip4, ip_protocol_fallback: false }
+  tcp:
+    prober: tcp
+    timeout: 5s
+    tcp: { preferred_ip_protocol: ip4, ip_protocol_fallback: false }
+  # TLS without verification on purpose: the Proxmox web certificate is
+  # self-signed, nothing is sent over the connection, and only the fact that it
+  # answers and when the certificate expires are read.
+  tls:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      tls: true
+      tls_config: { insecure_skip_verify: true }

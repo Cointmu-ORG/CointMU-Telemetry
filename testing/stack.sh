@@ -51,7 +51,7 @@ YAML
 loki_ready() { compose exec -T grafana wget -qO- http://loki:3100/ready </dev/null | grep '^ready'; }
 
 start_stack() {
-  compose up -d --no-deps loki prometheus grafana proxy >"$work/up.log" 2>&1 || { cat "$work/up.log" >&2; exit 1; }
+  compose up -d --no-deps loki prometheus blackbox grafana proxy >"$work/up.log" 2>&1 || { cat "$work/up.log" >&2; exit 1; }
   wait_for "stack ready" loki_ready
 }
 

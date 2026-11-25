@@ -31,7 +31,8 @@ def main() -> None:
         tests.append({"expr": f'({expr}) and on (host) infra_host_info{{host="{OTHER}"}}', "eval_time": EVAL_TIME, "exp_samples": []})
     content = {"rule_files": [], "evaluation_interval": "1m", "tests": [{
         "interval": series.INTERVAL,
-        "input_series": series.full_host(HOST, "R1") + series.base_host(OTHER, "linux", "none"),
+        "input_series": series.full_host(HOST, "R1") + series.base_host(OTHER, "linux", "none")
+        + series.probes(OTHER, ("icmp", "ssh"), series.flat(1)),
         "promql_expr_test": tests}]}
     (folder / "panels.yml").write_text(yaml.safe_dump(content, sort_keys=False))
     print(f"{len(queries())} panel queries")

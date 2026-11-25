@@ -21,6 +21,16 @@ def series(name: str, host: str, values: str, labels: str = "") -> dict:
     return {"series": f'{name}{{{COMMON},host="{host}"{extra}}}', "values": values}
 
 
+def probes(host: str, kinds: tuple[str, ...], values: str) -> list[dict]:
+    found = []
+    for probe in kinds:
+        labels = f'job="infra-probe",instance="probe",scope="infra",host="{host}",probe="{probe}"'
+        found.append({"series": f"probe_success{{{labels}}}", "values": values})
+        if probe == "web":
+            found.append({"series": f"probe_ssl_earliest_cert_expiry{{{labels}}}", "values": flat(10 ** 9)})
+    return found
+
+
 def base_host(host: str, kind: str, rack: str) -> list[dict]:
     disk = 'device="/dev/sda1",fstype="ext4",mountpoint="/"'
     return [
@@ -51,7 +61,7 @@ def base_host(host: str, kind: str, rack: str) -> list[dict]:
 def full_host(host: str, rack: str) -> list[dict]:
     disk = 'device="sda",model="X"'
     nvme = 'device="nvme0",model="Y"'
-    return base_host(host, "pve", rack) + [
+    return base_host(host, "pve", rack) + probes(host, ("icmp", "ssh", "web"), flat(1)) + [
         series("node_zfs_arc_size", host, flat(16 * GIB)),
         series("node_zfs_arc_c_min", host, flat(2 * GIB)),
         series("node_zfs_zpool_state", host, flat(1), 'zpool="rpool",state="online"'),

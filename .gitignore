@@ -7,6 +7,7 @@ state/
 # Enrolled hosts (names, addresses, racks; scripts/enroll.sh), in the encrypted
 # config backup instead.
 inventory/
+prometheus/probes/*.json
 *.key
 *.sql.gz
 # Per-host nginx files (allowlists, agent logins); only the examples are tracked.
@@ -16,3 +17,4 @@ nginx/local/*
 nginx/admin-allow.conf
 .codegraph
 graphify-out
+__pycache__/
