@@ -22,7 +22,6 @@ x-glitchtip-env: &glitchtip-env
   SECRET_KEY: ${SECRET_KEY:?set in .env}
   # Postgres also serves as task queue and cache, so no Valkey container.
   VALKEY_URL: ""
-  SERVER_ROLE: all_in_one
   GLITCHTIP_DOMAIN: https://${GLITCHTIP_HOST:?set in .env}:${HTTPS_PORT:-443}
   ALLOWED_HOSTS: ${GLITCHTIP_HOST},localhost
   CSRF_TRUSTED_ORIGINS: https://${GLITCHTIP_HOST},https://${GLITCHTIP_HOST}:${HTTPS_PORT:-443}
@@ -67,7 +66,7 @@ services:
 
   web:
     <<: [*hardening, *logging]
-    image: glitchtip/glitchtip:6.2.6@sha256:a3d8eb1b36c1e1603d55ab32711ea3dd8115874742a781a57391a62a16e0dff6
+    image: glitchtip/glitchtip:7.0.0@sha256:c245745b4179667da3aebd73fb8d4f1fd918f7d68ba07d1fd73ea688933b6e01
     environment: *glitchtip-env
     volumes:
       - uploads:/code/uploads
