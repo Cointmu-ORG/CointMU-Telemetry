@@ -121,17 +121,17 @@ services:
       - --web.enable-remote-write-receiver
       # Whichever limit is reached first deletes the oldest data.
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-90d}
-      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-2GB}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-12GB}
     environment:
       # Go GC works harder before mem_limit is hit instead of being OOM-killed.
-      GOMEMLIMIT: 300MiB
+      GOMEMLIMIT: 600MiB
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     read_only: true
     tmpfs: [/tmp]
     networks: [logs]
-    mem_limit: 384m
+    mem_limit: 768m
     pids_limit: 200
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
@@ -217,14 +217,14 @@ services:
   proxy:
     <<: [*hardening, *logging]
     # Its access log is the admin audit trail (README.md, "IP addresses"), so it
-    # is kept much longer: 30 x 100 MB is at least 30 days at the worst-case
-    # push volume (5 agents, one push a second). Rotated files are gzipped
+    # is kept much longer: 120 x 100 MB is at least 30 days at the worst-case
+    # push volume (20 agents, one push a second). Rotated files are gzipped
     # (about a tenth on disk); docker compose logs still reads them.
     logging:
       driver: json-file
       options:
         max-size: 100m
-        max-file: "30"
+        max-file: "120"
         compress: "true"
     image: nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
     ports:

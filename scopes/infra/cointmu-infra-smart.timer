@@ -1,0 +1,11 @@
+# /etc/systemd/system/cointmu-infra-smart.timer (scopes/infra/README.md).
+[Unit]
+Description=Write SMART metrics every 10 min
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=10min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

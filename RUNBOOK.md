@@ -57,6 +57,9 @@ command again (`enroll.sh commands <host>` prints them). After 24 h, or if a bun
 `scripts/enroll.sh reissue <host>` (`--leaked` revokes the old login at once, with a gap in the data), install,
 then `scripts/enroll.sh revoke-old <host>`.
 
+Give a host another scope: `scripts/enroll.sh change <host> --scopes cointmu,infra [--rack R1]`, then the
+printed commands. Its passwords stay.
+
 Remove a host: `install-agent.sh --uninstall` on the host, then `scripts/enroll.sh remove <host>`. Lines in
 `agent-allow.conf` that were written by hand are never touched.
 
@@ -665,6 +668,22 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
 4. **Check.** Dashboard "Chain": three nodes (server101 bootnode and miner, CT 106 miner) at the same
    height, last-block age under a minute. Grafana → Alerting: every chain rule Normal. The geth log
    panels still get lines from both hosts.
+
+## Moving to host metrics (deployments from before scope infra)
+
+1. Keep the admin audit trail: the new log settings recreate the proxy, which discards its log.
+   ```bash
+   (umask 077; docker compose logs --no-color proxy > state/proxy-audit-$(date +%Y%m%d).log)
+   ```
+2. `.env`: `PROMETHEUS_RETENTION_SIZE=12GB`. The limit is shared by all scopes: with the old 2 GB, host
+   metrics would push out UPS and chain history.
+3. ```bash
+   git pull --ff-only && docker compose up -d --no-deps --force-recreate prometheus
+   docker compose up -d --no-deps --force-recreate proxy
+   docker compose ps                # both healthy
+   ```
+4. Enroll one host with scope `infra` first (proxmox23: `enroll.sh change`), leave it for a day, then compare:
+   `docker stats --no-stream`, and in Grafana `count by (host) ({scope="infra"})`.
 
 ## Node logs (Loki + Grafana)
 

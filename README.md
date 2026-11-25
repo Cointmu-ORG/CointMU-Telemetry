@@ -35,7 +35,8 @@ geth node ─(same agent) chain metrics──▶ (same endpoint, own login)
 
 The root is the platform (compose, nginx, Loki, Prometheus, Grafana provisioning, scripts). What is
 monitored lives per scope in `scopes/<name>/`: agent files, `dashboards/` and `alerting/` (rules and
-contact points). Each scope has its own Grafana folder and Discord channels. Scopes: `cointmu`, `ups`.
+contact points). Each scope has its own Grafana folder and Discord channels. Scopes: `cointmu`, `ups`,
+`infra` (any server's own health).
 A new scope needs its dashboard provider in `grafana/provisioning/dashboards/scopes.yml`, its mounts in
 `compose.yml` and its route in `grafana/provisioning/alerting/policies.yml` (one tree for all scopes).
 
@@ -63,10 +64,10 @@ Measured on the bootnode server (two geth processes at the default INFO level): 
 | Loki | 60–300 MB used (768 MB) | under 0.5 GB for 5 such servers × 30 days, plus compaction headroom |
 | Grafana | about 240 MB used (512 MB) | under 100 MB (SQLite) |
 | Alloy on each node | 50–100 MB | WAL: at most a day of that node's logs |
-| Prometheus (host metrics) | about 100 MB used (384 MB) | the UPS writes about 0.3 MB a day; capped at `PROMETHEUS_RETENTION_SIZE` (2 GB) and `PROMETHEUS_RETENTION_TIME` (90 days), whichever comes first |
+| Prometheus (host metrics) | about 100 MB used plus a few KB per series (768 MB) | the UPS writes about 0.3 MB a day; an infra host has 100–400 series every 30 s; capped at `PROMETHEUS_RETENTION_SIZE` (12 GB, for all scopes together) and `PROMETHEUS_RETENTION_TIME` (90 days), whichever comes first |
 
-The container memory limits add up to about 3.3 GB (GlitchTip stack 1.6 GB, log and metrics stack
-1.7 GB), within the 4 GB. Loki shares the disk with PostgreSQL and has no size-based retention: the
+The container memory limits add up to about 3.7 GB (GlitchTip stack 1.6 GB, log and metrics stack
+2.1 GB). That still fits 4 GB; 6 GB leaves room once 10–15 hosts push. Loki shares the disk with PostgreSQL and has no size-based retention: the
 ingest limits in `loki/config.yml` stop a runaway agent, the disk-full section of the runbook covers
 the rest. Prometheus has both a time and a size limit.
 
@@ -85,7 +86,7 @@ the rest. Prometheus has both a time and a size limit.
 | Retention | `GLITCHTIP_RETENTION_DAYS` (default 60) |
 | Accounts | GlitchTip: registration and organization creation closed; Django admin, OpenAPI, logs, uptime and MCP off. Grafana: one login per admin, Viewer by default; the `admin` account (password from `.env`) is break-glass only (RUNBOOK.md, "Grafana users"). Sign-up, anonymous access and API basic auth off; no outbound calls except the Discord webhook |
 | Alerts | Discord, one channel per source: GlitchTip new issues, Grafana rules on the node logs, `scripts/healthcheck.sh` for the VM, #ups for the UPS (Grafana rules plus the UPS host itself), and #block-update for the chain ("Alerts" below) |
-| Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 30 × 100 MB, with rotated files gzipped: at least 30 days at the worst-case push volume (5 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
+| Logs | `json-file` driver rotated at 10 MB × 3 files per container. The proxy (audit trail) keeps 120 × 100 MB, with rotated files gzipped (about 1.2 GB): at least 30 days at the worst-case push volume (20 agents, one push a second). RUNBOOK.md shows how far back it currently reaches |
 | Hardening | `cap_drop: ALL` (Postgres gets back only what its entrypoint needs), `no-new-privileges`, read-only root filesystems for nginx, Loki, Prometheus and Grafana, memory and PID limits, health checks on every service except Loki (distroless image, see RUNBOOK.md) |
 
 ## Deploy

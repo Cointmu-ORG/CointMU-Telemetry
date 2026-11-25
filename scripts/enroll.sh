@@ -6,6 +6,8 @@
 #   scripts/enroll.sh add <host> <ip> --scopes a,b --ssh <user@alias> [options]
 #   scripts/enroll.sh adopt <host> <ip> --scopes a,b --ssh <user@alias> --login <name> [options]
 #       a host that already ships data: keeps its login, passwords and Alloy
+#   scripts/enroll.sh change <host> [--scopes a,b] [--rack <name>] [--set KEY=VALUE]
+#       new bundle for a known host; its passwords stay
 #   scripts/enroll.sh verify <host>     data of every scope arrives? then removes the bundle
 #   scripts/enroll.sh commands <host>   prints the workstation commands again
 #   scripts/enroll.sh reissue <host> [--leaked]   new login and bundle
@@ -25,7 +27,7 @@ cd "$(dirname "$0")/.."
 readonly LOCK_FILE=state/enroll.lock
 readonly LOCK_WAIT_SECONDS=30
 
-usage() { sed -n '2,22p' "$0" >&2; exit 2; }
+usage() { sed -n '2,24p' "$0" >&2; exit 2; }
 die() { echo "enroll: $*" >&2; exit 1; }
 
 # shellcheck source=scripts/enroll/registry.sh
@@ -97,6 +99,29 @@ cmd_adopt() {
   undo=(undo_allow undo_bundle undo_record)
   allow_host "$h_host" "$h_ip"
   record_and_build without-alloy
+}
+
+# Logins the new scopes need and the host does not have yet are added under its
+# current login name; the others stay, so their passwords are not in the bundle.
+cmd_change() {
+  local kind missing=""
+  load_host "$1"; shift
+  [[ "$h_state" == active ]] || die "$h_host is still $h_state: its bundle may hold the only copy of its passwords (verify or reissue first)"
+  change_options "$@"
+  check_scopes
+  load_settings_below
+  check_settings change
+  for kind in $(host_logins); do
+    if ! has_login "$h_login" "$kind"; then missing+="$kind "; fi
+  done
+  stage=$(mktemp -d)
+  add_logins "$h_login" "$missing" "$stage"
+  save_settings
+  shred_bundle "$h_host"
+  build_bundle without-alloy "$stage"
+  h_state=pending
+  registry_save
+  print_commands
 }
 
 record_and_build() {
@@ -206,5 +231,6 @@ case "$command" in
   verify | bundle | commands) (( $# == 1 )) || usage; "cmd_$command" "$1" ;;
   revoke-old | remove) (( $# == 1 )) || usage; check_access_files; "cmd_${command//-/_}" "$1" ;;
   reissue) (( $# == 1 || $# == 2 )) || usage; check_access_files; cmd_reissue "$@" ;;
+  change) (( $# >= 1 )) || usage; check_access_files; cmd_change "$@" ;;
   *) usage ;;
 esac

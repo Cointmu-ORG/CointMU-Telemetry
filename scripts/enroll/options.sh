@@ -30,10 +30,26 @@ parse_options() {
       --ssh-port) h_ssh_port="$2" ;;
       --arch) h_arch="$2" ;;
       --login) h_login="$2" ;;
-      --set)
-        [[ "$2" =~ $SETTING_PATTERN ]] || die "--set '$2' is not KEY=VALUE with plain characters"
-        SETTINGS["${2%%=*}"]="${2#*=}"
-        ;;
+      --set) set_setting "$2" ;;
+      *) usage ;;
+    esac
+    shift 2
+  done
+}
+
+set_setting() {
+  [[ "$1" =~ $SETTING_PATTERN ]] || die "--set '$1' is not KEY=VALUE with plain characters"
+  SETTINGS["${1%%=*}"]="${1#*=}"
+}
+
+# Options of "change": the rest of a host cannot change without a new enrollment.
+change_options() {
+  while (( $# > 0 )); do
+    (( $# >= 2 )) || usage
+    case "$1" in
+      --scopes) h_scopes="$2" ;;
+      --rack) h_rack="$2" ;;
+      --set) set_setting "$2" ;;
       *) usage ;;
     esac
     shift 2
@@ -43,23 +59,27 @@ parse_options() {
 # $1 what, $2 value, $3 pattern.
 check_format() { [[ "$2" =~ $3 ]] || die "invalid $1 '$2'"; }
 
-check_host() {
+check_scopes() {
   local scope
+  check_format --scopes "$h_scopes" "$SCOPE_PATTERN"
+  if [[ -n "$h_rack" ]]; then check_format --rack "$h_rack" "$RACK_PATTERN"; fi
+  for scope in ${h_scopes//,/ }; do
+    [[ -f "scopes/$scope/agent.manifest" ]] || die "no scope '$scope' (scopes/$scope/agent.manifest)"
+  done
+}
+
+check_host() {
   check_format host "$h_host" "$NAME_PATTERN"
   check_format address "$h_ip" "$IPV4_PATTERN"
-  check_format --scopes "$h_scopes" "$SCOPE_PATTERN"
   check_format --ssh-port "$h_ssh_port" "$PORT_PATTERN"
   check_format --type "$h_type" '^(pve|linux|lxc)$'
   check_format --arch "$h_arch" '^(amd64|arm64)$'
-  if [[ -n "$h_rack" ]]; then check_format --rack "$h_rack" "$RACK_PATTERN"; fi
   if [[ "$h_type" == lxc ]]; then
     check_format "--via (pve ssh alias:ctid)" "$h_via" "$VIA_PATTERN"
   else
     check_format --ssh "$h_ssh" "$SSH_PATTERN"
   fi
-  for scope in ${h_scopes//,/ }; do
-    [[ -f "scopes/$scope/agent.manifest" ]] || die "no scope '$scope' (scopes/$scope/agent.manifest)"
-  done
+  check_scopes
   if registry_hosts | grep -qxF "$h_host"; then die "host '$h_host' exists (remove it first, or reissue)"; fi
   if registry_has_ip "$h_ip"; then die "another host has the address $h_ip"; fi
 }
@@ -96,6 +116,15 @@ load_settings() {
   local line
   [[ -f "$(settings_file)" ]] || return 0
   while IFS= read -r line; do SETTINGS["${line%%=*}"]="${line#*=}"; done < "$(settings_file)"
+}
+
+# Stored settings under the ones given now.
+load_settings_below() {
+  local key
+  local -A given=()
+  for key in "${!SETTINGS[@]}"; do given["$key"]="${SETTINGS[$key]}"; done
+  load_settings
+  for key in "${!given[@]}"; do SETTINGS["$key"]="${given[$key]}"; done
 }
 
 delete_settings() { rm -f "${SETTINGS_DIR:?}/${h_host:?}"; }

@@ -217,6 +217,14 @@ check_uninstall deb13
 start_host deb12 debian12
 on deb12 bash -c 'printf "#!/bin/sh\necho stub\n" > /usr/local/bin/pveversion && chmod +x /usr/local/bin/pveversion'
 enroll_host deb12 "$(add_host deb12 --type pve --ssh root@deb12)" && check_installed deb12
+# A second scope for a host that is active already: no new password, more data.
+enroll_host deb12 "$(enroll change deb12 --scopes cointmu,infra --rack R1)"
+check "deb12: rack and type in infra_host_info" grep -F '"rack":"R1"' <(compose exec -T grafana \
+  wget -qO- 'http://prometheus:9090/api/v1/query?query=infra_host_info%7Bhost%3D%22deb12%22,type%3D%22pve%22%7D' </dev/null)
+for collector in smart pve gpu; do
+  check "deb12: collector $collector ran in its sandbox" on deb12 grep -q "collector=\"$collector\"" "/var/lib/cointmu-infra/$collector/$collector.prom"
+done
+check "deb12: alloy reads the collectors' files" on deb12 runuser -u alloy -- cat /var/lib/cointmu-infra/gpu/gpu.prom
 
 start_host ubu24 ubuntu2404
 enroll_host ubu24 "$(add_host ubu24 --type linux --ssh netadmin@ubu24)" && check_installed ubu24

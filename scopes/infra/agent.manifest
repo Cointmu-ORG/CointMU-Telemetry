@@ -1,0 +1,18 @@
+# Scope infra (directives: scopes/cointmu/agent.manifest): any server. SMART and
+# GPU on physical machines, guest counts on Proxmox hosts; a container gets only
+# the collectors that show itself.
+logins metrics
+tool python3
+on:pve,linux want smartctl
+on:lxc setenv INFRA_COLLECTORS cpu,filesystem,loadavg,meminfo,netdev,stat,textfile,time,uname,vmstat
+on:pve,linux user cointmu-infra
+on:pve,linux file scopes/infra/infra-metrics.py /usr/local/lib/cointmu-infra/infra-metrics.py 755
+on:pve,linux tmpfiles scopes/infra/cointmu-infra.tmpfiles.conf
+on:pve,linux unit scopes/infra/cointmu-infra-smart.service
+on:pve,linux timer scopes/infra/cointmu-infra-smart.timer
+on:pve,linux unit scopes/infra/cointmu-infra-gpu.service
+on:pve,linux timer scopes/infra/cointmu-infra-gpu.timer
+on:pve unit scopes/infra/cointmu-infra-pve.service
+on:pve timer scopes/infra/cointmu-infra-pve.timer
+fragment scopes/infra/infra.alloy
+verify metrics infra_host_info{scope="infra",host="HOST"}
