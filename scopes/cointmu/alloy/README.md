@@ -17,7 +17,7 @@ geth (PM2 log file or journal) ──▶ Alloy ──HTTPS + login──▶ ngin
 
 `config.alloy` also pushes the node's **chain metrics** to Prometheus, with a second login
 (`/etc/alloy/metrics-password`, `METRICS_PUSH_*`). Set those up first and run
-`agents/chain/alloy-preflight.sh` before installing this config (agents/chain/README.md). Without
+`scopes/cointmu/chain/alloy-preflight.sh` before installing this config (scopes/cointmu/chain/README.md). Without
 them Alloy still ships the logs, but every metrics batch fails with a warning.
 
 ## What it sends
@@ -55,7 +55,7 @@ echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stab
 sudo apt-get update && sudo apt-get install -y alloy=1.21.0-1
 sudo apt-mark hold alloy
 
-# 2. Config, certificate and password (copy the repo's agents/alloy/ and the VM's certs/server.crt over first)
+# 2. Config, certificate and password (copy the repo's scopes/cointmu/alloy/ and the VM's certs/server.crt over first)
 sudo install -m 644 config.alloy /etc/alloy/config.alloy
 sudo install -m 644 server.crt /etc/alloy/telemetry.crt
 read -rsp 'push password: ' PW; echo
@@ -105,7 +105,7 @@ curl -sk -o /dev/null -w '%{http_code}\n' -X POST https://<VM>/loki/api/v1/push 
 
 ## Changing the config
 
-Run `agents/alloy/check-redaction.sh` on a machine with the stack running. It feeds
+Run `scopes/cointmu/alloy/check-redaction.sh` on a machine with the stack running. It feeds
 `testdata/cointmu-check-error.log` through `config.alloy` in the pinned Alloy image and fails if an
 address or node ID gets through, a label is wrong, or the DEBUG line is not dropped. Add a line to
 the test data for every new kind of address you see in real logs.

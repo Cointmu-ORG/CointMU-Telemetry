@@ -7,7 +7,7 @@ can be swapped for any Sentry-compatible backend by changing the DSN and pin in 
 
 The same VM also collects the logs of the geth node **servers** (bootnode, miner) in
 [Loki](https://grafana.com/oss/loki/), with a [Grafana](https://grafana.com/oss/grafana/)
-dashboard for admins. Agents on the nodes ([agents/alloy/](agents/alloy/README.md)) push over the
+dashboard for admins. Agents on the nodes ([scopes/cointmu/alloy/](scopes/cointmu/alloy/README.md)) push over the
 same HTTPS port with their own logins; the desktop app never uses that path.
 
 It also watches the **UPS** on one Proxmox host ("UPS monitoring" below): the host posts power
@@ -66,9 +66,9 @@ the rest. Prometheus has both a time and a size limit.
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, the UPS paths end to end (`agents/ups/check-notify.sh`, `check-ups.sh`) and the chain metrics end to end (`agents/chain/check-chain.sh`) |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, the UPS paths end to end (`scopes/ups/check-notify.sh`, `check-ups.sh`) and the chain metrics end to end (`scopes/cointmu/chain/check-chain.sh`) |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki, Prometheus and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) and the metrics push (`/prometheus/api/v1/write`) only to `nginx/local/agent-allow.conf` plus a per-agent login, a separate one per endpoint. The rest of Loki's and Prometheus' APIs is not proxied |
-| Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`agents/alloy/`) |
+| Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`scopes/cointmu/alloy/`) |
 | Host metrics | Prometheus single binary with the remote-write receiver, no scrape targets of its own; retention by time and size. Each source pushes with its own login (`scripts/agent-cred.sh add <name> metrics`) and `job` label, so more sources (e.g. CointMU-Bot) only need a login |
 | TLS | Self-signed (or internal-CA) certificate; the app pins the **public key** (SPKI SHA-256). `server.key` is `640` with a dedicated host group (`TLS_GID`) that only the proxy joins, all other keys `600` |
 | Rate limit | nginx: 5 req/s per client with burst 20 on the ingest endpoints (429 above), 1 MB body cap. GlitchTip 6.2.6 stores per-key rate limits but does not enforce them at ingest, so nginx is the limit |
@@ -112,7 +112,7 @@ cp nginx/local/agent-allow.conf.example nginx/local/agent-allow.conf
 # add one "<address or subnet> 1;" line per geth node server (campus or tailnet IP)
 sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/loki-agents.htpasswd
 sudo install -m 640 -o "$USER" -g "$TLS_GID" /dev/null nginx/local/metrics-agents.htpasswd
-# agent logins are added later with scripts/agent-cred.sh (agents/alloy/README.md, agents/ups/README.md, agents/chain/README.md)
+# agent logins are added later with scripts/agent-cred.sh (scopes/cointmu/alloy/README.md, scopes/ups/README.md, scopes/cointmu/chain/README.md)
 
 # 4. Firewall (see below), then start
 docker compose up -d
@@ -129,7 +129,7 @@ pin without `certs/server.key`. `scripts/backup-config.sh` copies them off the V
 
 Grafana is at `https://<GLITCHTIP_HOST>/grafana/`. Log in once as `admin` (`GRAFANA_ADMIN_PASSWORD`) to
 create one login per admin (RUNBOOK.md, "Grafana users"), then use your own. It has the
-"Geth node logs" dashboard. To ship a node's logs, follow [agents/alloy/README.md](agents/alloy/README.md).
+"Geth node logs" dashboard. To ship a node's logs, follow [scopes/cointmu/alloy/README.md](scopes/cointmu/alloy/README.md).
 
 ## Connect the app
 
@@ -319,7 +319,7 @@ DISK_MAX_PERCENT=1 scripts/healthcheck.sh; scripts/healthcheck.sh   # "FAIL disk
 
 For #node-logs, #ups and #block-update, open Grafana → Alerting → Contact points →
 `discord-node-logs`, `discord-ups` or `discord-chain` → Test (as an org Admin). The UPS host tests its own webhook with
-`sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (agents/ups/README.md).
+`sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test` (scopes/ups/README.md).
 
 **Blind spot.** GlitchTip, Grafana and `healthcheck.sh` all run on this VM. If the whole VM is down
 or loses its network, nothing alerts. This is accepted for now. A possible later addition is an external heartbeat, e.g. a
@@ -330,7 +330,7 @@ is not set up.
 
 The UPS hangs on one Proxmox host, which runs NUT (`upsmon` monitor-only: it reports, it never
 shuts anything down). The telemetry VM runs on that same host, so it is on the same UPS. Install
-and details are in [agents/ups/README.md](agents/ups/README.md).
+and details are in [scopes/ups/README.md](scopes/ups/README.md).
 
 | Path | What | Where it shows | Needs the VM |
 |---|---|---|---|
@@ -372,7 +372,7 @@ RUNBOOK.md ("Alerts") has what each one means.
 
 Each geth node server runs `chain-metrics.py` every 15 s against its own geth RPC (loopback only),
 and the node's Alloy agent pushes the result to Prometheus with its own metrics login. Install and
-details are in [agents/chain/README.md](agents/chain/README.md). Nodes: server101 (bootnode and
+details are in [scopes/cointmu/chain/README.md](scopes/cointmu/chain/README.md). Nodes: server101 (bootnode and
 miner) and CT 106 (miner). Grafana dashboard "Chain": height, blocks behind the highest node,
 last-block age, block time, difficulty, estimated network hashrate, peers, sync state and RPC state
 per node.

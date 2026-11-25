@@ -13,7 +13,7 @@ repository mounted at /repo.
                                            (default ups) as JSON
 
 RULE_GROUP (default ups) and DASHBOARD (default ups.json) come from the
-environment, so agents/chain/check-chain.sh uses this file as well.
+environment, so scopes/cointmu/chain/check-chain.sh uses this file as well.
 """
 import json
 import os

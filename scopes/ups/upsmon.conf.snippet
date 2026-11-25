@@ -1,4 +1,4 @@
-# Lines for /etc/nut/upsmon.conf on the UPS host (agents/ups/README.md, which
+# Lines for /etc/nut/upsmon.conf on the UPS host (scopes/ups/README.md, which
 # deletes the existing lines with these keywords and appends this file, with
 # <UPSMON_PASSWORD> filled in from upsd.users.snippet). Keep SHUTDOWNCMD,
 # HOSTSYNC, POLLFREQ and the other existing lines.
@@ -19,7 +19,7 @@ MINSUPPLIES 0
 # upssched debounces and calls ups-notify.sh (upssched.conf.snippet).
 NOTIFYCMD /usr/sbin/upssched
 
-# SYSLOG keeps upsmon's own journal line (shipped to Loki, agents/ups/), EXEC
+# SYSLOG keeps upsmon's own journal line (shipped to Loki, scopes/ups/), EXEC
 # hands the event to upssched. NOCOMM is not here: upsmon repeats it every
 # NOCOMMWARNTIME; COMMBAD already covers a lost UPS. FSD and SHUTDOWN only
 # happen once automatic shutdown is on.

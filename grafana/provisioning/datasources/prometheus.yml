@@ -1,4 +1,4 @@
-# Host metrics pushed by the agents (agents/ups/). Loki stays the default.
+# Host metrics pushed by the agents (scopes/ups/). Loki stays the default.
 apiVersion: 1
 datasources:
   - name: Prometheus

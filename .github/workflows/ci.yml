@@ -77,8 +77,8 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh agents/alloy/check-redaction.sh
-          agents/ups/*.sh agents/ups/testdata/*.sh agents/chain/*.sh agents/chain/testdata/*.sh
+          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh scopes/cointmu/alloy/check-redaction.sh
+          scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
   alloy:
@@ -89,9 +89,9 @@ jobs:
 
       - name: alloy fmt
         run: |
-          image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' agents/alloy/check-redaction.sh)
+          image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' scopes/cointmu/alloy/check-redaction.sh)
           test -n "$image"
-          for config in agents/alloy/config.alloy agents/ups/config.alloy; do
+          for config in scopes/cointmu/alloy/config.alloy scopes/ups/config.alloy; do
             docker run --rm -v "$PWD/$config:/config.alloy:ro" --entrypoint /bin/alloy "$image" \
               fmt --test /config.alloy
           done
@@ -123,7 +123,7 @@ jobs:
       # check-redaction.sh expects a Loki that already answers queries.
       - name: Wait for Loki
         run: |
-          probe=$(sed -n 's/^readonly PROBE_IMAGE="\(.*\)"$/\1/p' agents/alloy/check-redaction.sh)
+          probe=$(sed -n 's/^readonly PROBE_IMAGE="\(.*\)"$/\1/p' scopes/cointmu/alloy/check-redaction.sh)
           test -n "$probe"
           network=$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' \
             "$(docker compose ps -q loki)")
@@ -137,7 +137,7 @@ jobs:
           docker compose logs loki
           exit 1
 
-      - run: agents/alloy/check-redaction.sh
+      - run: scopes/cointmu/alloy/check-redaction.sh
 
       # First start runs all of Grafana's migrations, hence the long wait.
       - name: Grafana starts cleanly
@@ -228,12 +228,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - run: agents/ups/check-notify.sh
+      - run: scopes/ups/check-notify.sh
 
-      - run: agents/ups/check-ups.sh
+      - run: scopes/ups/check-ups.sh
 
   # The chain metrics end to end in their own compose project: chain-metrics.py
-  # against stub RPCs on a fake node, agents/alloy/config.alloy through nginx
+  # against stub RPCs on a fake node, scopes/cointmu/alloy/config.alloy through nginx
   # into Prometheus, the Chain dashboard and the chain rules per scenario, and
   # Alloy without its metrics password.
   chain:
@@ -242,4 +242,4 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - run: agents/chain/check-chain.sh
+      - run: scopes/cointmu/chain/check-chain.sh

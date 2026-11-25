@@ -5,7 +5,7 @@
 # it never touches a running deployment and runs anywhere with Docker.
 #
 # A fake UPS host (testdata/metrics-host.sh: dummy-ups, ups-metrics.sh, the
-# owner/mode checks) feeds agents/ups/config.alloy, which pushes the metrics
+# owner/mode checks) feeds scopes/ups/config.alloy, which pushes the metrics
 # and test journal lines (testdata/ups-journal.txt) through nginx. Checks:
 # - remote write via nginx: series arrive; 2xx and 403 in the noip log; wrong
 #   password, a log login and other paths refused (401, 401, 404); a
@@ -18,13 +18,13 @@
 #   timer stopped while Alloy keeps scraping: "stale" fires, "missing" does not
 # Takes about four minutes.
 #
-#   agents/ups/check-ups.sh
+#   scopes/ups/check-ups.sh
 set -euo pipefail
 
 cd "$(dirname "$0")"
 ROOT_DIR="$(cd ../.. && pwd)"
 readonly ROOT_DIR
-ALLOY_IMAGE=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' ../alloy/check-redaction.sh)
+ALLOY_IMAGE=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' ../cointmu/alloy/check-redaction.sh)
 readonly ALLOY_IMAGE
 readonly TEST_IMAGE=cointmu-ups-test:local
 readonly PROJECT="cointmu-ups-check-$$"
@@ -46,7 +46,7 @@ fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
 pass() { echo "ok:   $*"; }
 compose() { docker compose -p "$PROJECT" -f "$ROOT_DIR/compose.yml" -f "$work/override.yml" --env-file "$work/env" "$@"; }
 in_logs() { docker exec "$PROJECT-logs-probe" "$@"; }
-queries() { in_logs python3 /repo/agents/ups/testdata/ups_queries.py "$@"; }
+queries() { in_logs python3 /repo/scopes/ups/testdata/ups_queries.py "$@"; }
 rule() { queries rules "${2:-0}" | sed -n "s/^$1 //p"; }
 
 cleanup() {
@@ -212,13 +212,13 @@ start_stack
 start_host
 write_journal
 start_alloy
-wait_for "metrics arrive through nginx" sh -c "[ -n \"\$(docker exec $PROJECT-logs-probe python3 /repo/agents/ups/testdata/ups_queries.py value 'ups_up{job=\"ups\",host=\"$AGENT_HOST\",ups=\"check\"} == 1')\" ]"
+wait_for "metrics arrive through nginx" sh -c "[ -n \"\$(docker exec $PROJECT-logs-probe python3 /repo/scopes/ups/testdata/ups_queries.py value 'ups_up{job=\"ups\",host=\"$AGENT_HOST\",ups=\"check\"} == 1')\" ]"
 if [[ "$(queries value "ups_battery_charge_percent{host=\"$AGENT_HOST\"}")" == 76 ]]; then
   pass "charge value as written by ups-metrics.sh"
 else
   fail "charge value"
 fi
-wait_for "logs arrive through nginx" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/agents/ups/testdata/ups_queries.py logs $AGENT_HOST | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')\" -ge $EXPECTED_LOG_LINES ]"
+wait_for "logs arrive through nginx" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/scopes/ups/testdata/ups_queries.py logs $AGENT_HOST | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')\" -ge $EXPECTED_LOG_LINES ]"
 check_logs
 check_endpoint
 if queries panels "$AGENT_HOST"; then pass "every ups.json panel query returns data"; else fail "dashboard panels"; fi
@@ -237,7 +237,7 @@ expect_rule ups-metrics-stale "NoData->OK" "$MISSING_OFFSET_SECONDS"
 # (a) timer stopped while Alloy keeps scraping the last file.
 restarted=$(date +%s)
 start_alloy
-wait_for "fresh samples after the Alloy restart" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/agents/ups/testdata/ups_queries.py value 'timestamp(ups_up{host=\"$AGENT_HOST\"}) > $restarted')\" != '' ]"
+wait_for "fresh samples after the Alloy restart" sh -c "[ \"\$(docker exec $PROJECT-logs-probe python3 /repo/scopes/ups/testdata/ups_queries.py value 'timestamp(ups_up{host=\"$AGENT_HOST\"}) > $restarted')\" != '' ]"
 docker exec "$PROJECT-host" touch /tmp/stop-timer
 sleep "$STALE_WAIT_SECONDS"
 expect_rule ups-metrics-stale Alerting

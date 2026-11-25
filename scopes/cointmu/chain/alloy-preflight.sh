@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Checks a geth node is ready for the agents/alloy/config.alloy that also
+# Checks a geth node is ready for the scopes/cointmu/alloy/config.alloy that also
 # pushes chain metrics, BEFORE that config replaces the running one
-# (agents/chain/README.md, "Alloy"). Run as root:
+# (scopes/cointmu/chain/README.md, "Alloy"). Run as root:
 #
-#   sudo agents/chain/alloy-preflight.sh && sudo install -m 644 ../alloy/config.alloy /etc/alloy/config.alloy
+#   sudo scopes/cointmu/chain/alloy-preflight.sh && sudo install -m 644 ../alloy/config.alloy /etc/alloy/config.alloy
 #
 # Prints every missing piece and exits 1, so "&&" leaves the running config
 # alone. Without these, Alloy 1.21 still starts and keeps pushing logs, but

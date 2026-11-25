@@ -3,7 +3,7 @@
 // Prometheus, both through the telemetry VM's nginx with their own logins.
 // Settings come from /etc/default/alloy (alloy.env.example). Needs
 // --stability.level=experimental for the Loki write-ahead log, as on the geth
-// nodes (agents/alloy/).
+// nodes (scopes/cointmu/alloy/).
 
 // --- Logs: the NUT units' journal ------------------------------------------
 // "matches" is AND-only in this Alloy version, so one source per unit. The
@@ -53,13 +53,13 @@ loki.process "ups" {
 	}
 
 	// upsd logs client logins as user@<address>, upsmon names the upsd it
-	// talks to. Same expressions as the geth pipeline (agents/alloy/).
+	// talks to. Same expressions as the geth pipeline (scopes/cointmu/alloy/).
 	stage.replace {
 		expression = "\\b((?:\\d{1,3}\\.){3}\\d{1,3})\\b"
 		replace    = "<ip>"
 	}
 
-	// ponytail: IPv6 heuristic copied from agents/alloy/config.alloy.
+	// ponytail: IPv6 heuristic copied from scopes/cointmu/alloy/config.alloy.
 	stage.replace {
 		expression = "((?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{0,4}::(?:[0-9a-fA-F]{1,4}:?){0,6})"
 		replace    = "<ip>"
@@ -85,7 +85,7 @@ loki.write "telemetry" {
 		}
 
 		// As on the geth nodes: retry 429/5xx forever from the WAL, keep the
-		// in-memory queue small (agents/alloy/README.md, "Disk buffer").
+		// in-memory queue small (scopes/cointmu/alloy/README.md, "Disk buffer").
 		max_backoff_retries = 0
 		max_backoff_period  = "5m"
 

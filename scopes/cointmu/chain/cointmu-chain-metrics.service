@@ -1,22 +1,21 @@
-# /etc/systemd/system/cointmu-ups-metrics.service on the UPS host
-# (agents/ups/README.md). Started every 15 s by cointmu-ups-metrics.timer.
+# /etc/systemd/system/cointmu-chain-metrics.service on a geth node server
+# (scopes/cointmu/chain/README.md). Started every 15 s by cointmu-chain-metrics.timer.
 # A fixed system user, not DynamicUser: a dynamic user's state lives under
 # /var/lib/private (0700 root), out of the Alloy agent's reach. The directory
-# comes from cointmu-ups.tmpfiles.conf, not StateDirectory=, which would chown
-# it back to this user's group on every start.
+# comes from cointmu-chain.tmpfiles.conf, not StateDirectory=, which would
+# chown it back to this user's group on every start.
 [Unit]
-Description=Write UPS metrics for the Alloy textfile collector
-After=nut-server.service
+Description=Write geth chain metrics for the Alloy textfile collector
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/lib/cointmu-ups/ups-metrics.sh
-User=cointmu-ups
-Group=cointmu-ups
+ExecStart=/usr/local/lib/cointmu-chain/chain-metrics.py
+User=cointmu-chain
+Group=cointmu-chain
 UMask=0027
-# Only upsd on localhost, only its output directory.
+# Only geth's RPC on localhost, only its output directory.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/cointmu-ups
+ReadWritePaths=/var/lib/cointmu-chain
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -38,5 +37,6 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-MemoryMax=32M
-TimeoutStartSec=10
+MemoryMax=64M
+# Two nodes, two RPC requests each, 3 s timeout per request.
+TimeoutStartSec=20

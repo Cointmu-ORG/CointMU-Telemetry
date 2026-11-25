@@ -2,7 +2,7 @@
 """Writes the chain state of this host's geth nodes for Alloy's textfile
 collector as /var/lib/cointmu-chain/chain.prom (Prometheus text format). Run
 every 15 s by cointmu-chain-metrics.timer as the cointmu-chain user
-(agents/chain/README.md).
+(scopes/cointmu/chain/README.md).
 
     chain-metrics.py
 

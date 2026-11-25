@@ -114,7 +114,7 @@ journalctl -t cointmu-ups-notify -n 5 --no-pager                # "posted test"
 Copy the VM's `certs/server.crt` over as well.
 
 ```bash
-# Alloy, pinned, exactly as agents/alloy/README.md step 1 (apt repository,
+# Alloy, pinned, exactly as scopes/cointmu/alloy/README.md step 1 (apt repository,
 # alloy=1.21.0-1, apt-mark hold). This creates the alloy user and group.
 getent group alloy                                  # must print a line
 sudo install -m 644 config.alloy /etc/alloy/config.alloy
@@ -197,14 +197,14 @@ command; the VMs are shut down after it.
 
 ## Changing it
 
-- `agents/ups/check-notify.sh`: real NUT daemons on a fake UPS in a container, with discord.com
+- `scopes/ups/check-notify.sh`: real NUT daemons on a fake UPS in a container, with discord.com
   pointed at a local listener. It checks:
   - monitor-only, as installed: the debounce, one post per transition, low battery without a shutdown
   - with automatic shutdown on: the shutdown ordering, including a slow Discord
   - the payloads
 
   About 2 minutes.
-- `agents/ups/check-ups.sh`: a throwaway copy of the stack plus a fake UPS host running
+- `scopes/ups/check-ups.sh`: a throwaway copy of the stack plus a fake UPS host running
   `ups-metrics.sh`. It checks:
   - the owner/mode table above
   - remote write and log push through nginx: 2xx, 401, 403, 404, audit log
