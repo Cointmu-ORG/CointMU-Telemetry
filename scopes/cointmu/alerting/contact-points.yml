@@ -1,10 +1,8 @@
-# Grafana's built-in Discord integration, posting to #node-logs, #ups and
-# #block-update. The
-# webhook URLs come from .env through compose.yml; there it falls back to a
-# placeholder on the reserved .invalid domain, because Grafana refuses a
-# Discord contact point without a URL and would not start. With the
-# placeholder the rules still run and show in Grafana, and sending fails
-# without leaving the host.
+# #node-logs and #block-update: Grafana's built-in Discord integration. The webhook URLs come from .env
+# through compose.yml; there it falls back to a placeholder on the reserved
+# .invalid domain, because Grafana refuses a Discord contact point without a
+# URL and would not start. With the placeholder the rules still run and show in
+# Grafana, and sending fails without leaving the host.
 #
 # use_embed_description puts the message in the embed: Discord only turns
 # @everyone/@here and <@id> into pings from the top-level content, which stays
@@ -23,20 +21,6 @@ contactPoints:
           use_embed_description: true
           title: '{{ template "cointmu.title" . }}'
           message: '{{ template "cointmu.message" . }}'
-  # UPS thresholds and stale or missing UPS data (rules.yml, group ups). Power
-  # events come from the UPS host itself, with its own webhook.
-  - orgId: 1
-    name: discord-ups
-    receivers:
-      - uid: discord-ups
-        type: discord
-        disableResolveMessage: false
-        settings:
-          url: $DISCORD_WEBHOOK_UPS
-          use_discord_username: false
-          use_embed_description: true
-          title: '{{ template "cointmu.title" . }}'
-          message: '{{ template "cointmu.ups_message" . }}'
   # Chain metrics rules (rules.yml, group chain). #node-logs keeps the log
   # rules only.
   - orgId: 1

@@ -16,7 +16,8 @@ restart` would miss the second.
 
 | Changed | Service |
 |---|---|
-| `grafana/provisioning/` | `grafana` (dashboard JSON alone is picked up within seconds, no recreate) |
+| `grafana/provisioning/`, `scopes/*/alerting/` | `grafana` |
+| `scopes/*/dashboards/` | nothing: Grafana reads changed JSON within seconds. A new or moved folder needs `grafana` |
 | `prometheus/prometheus.yml` | `prometheus` |
 | `loki/config.yml` | `loki` |
 | `nginx/default.conf` | `docker compose restart proxy`. Recreating the proxy discards its log, which is the admin audit trail ("Admin access audit"); do that only when its section in `compose.yml` changed, and save the log first |

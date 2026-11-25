@@ -31,6 +31,14 @@ geth node ─(same agent) chain metrics──▶ (same endpoint, own login)
   └─ upssched → ups-notify.sh ──HTTPS──▶ Discord #ups   (straight from the host, VM not needed)
 ```
 
+## Layout
+
+The root is the platform (compose, nginx, Loki, Prometheus, Grafana provisioning, scripts). What is
+monitored lives per scope in `scopes/<name>/`: agent files, `dashboards/` and `alerting/` (rules and
+contact points). Each scope has its own Grafana folder and Discord channels. Scopes: `cointmu`, `ups`.
+A new scope needs its dashboard provider in `grafana/provisioning/dashboards/scopes.yml`, its mounts in
+`compose.yml` and its route in `grafana/provisioning/alerting/policies.yml` (one tree for all scopes).
+
 ## Why GlitchTip, not self-hosted Sentry
 
 | | Self-hosted Sentry | GlitchTip |
@@ -66,7 +74,7 @@ the rest. Prometheus has both a time and a size limit.
 
 | Piece | Choice |
 |---|---|
-| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, the UPS paths end to end (`scopes/ups/check-notify.sh`, `check-ups.sh`) and the chain metrics end to end (`scopes/cointmu/chain/check-chain.sh`) |
+| Images (pinned by digest) | `postgres:18.6-alpine`, `glitchtip/glitchtip:6.2.6` (all-in-one, no Valkey), `nginxinc/nginx-unprivileged:1.31.7-alpine`, `grafana/loki:3.7.8`, `prom/prometheus:v3.15.1`, `grafana/grafana:13.2.4`, each as `tag@sha256:…`; Dependabot proposes new tags and digests weekly for every image in `compose.yml` (the Alloy agents on the nodes are apt packages, upgraded by hand); CI (`.github/workflows/ci.yml`) tests every PR: `docker compose config`, `nginx -t` and `promtool check config` in the pinned images, shellcheck, `alloy fmt`, `check-redaction.sh` against a real Loki, a clean Grafana start, the provisioning deployed over the previous commit's (`grafana/check-upgrade.sh`), the UPS paths end to end (`scopes/ups/check-notify.sh`, `check-ups.sh`) and the chain metrics end to end (`scopes/cointmu/chain/check-chain.sh`) |
 | Exposure | Only nginx is published, on `BIND_IP:HTTPS_PORT`; Postgres sits on an internal network with no route out, Loki, Prometheus and Grafana on another one; Grafana's only route out is `alerts-egress`, for the Discord webhook. Event ingest and `/_health/` are open to the campus LAN; the GlitchTip dashboard and API and Grafana (`/grafana/`) only to the addresses in `nginx/local/admin-allow.conf`; the log push (`/loki/api/v1/push`) and the metrics push (`/prometheus/api/v1/write`) only to `nginx/local/agent-allow.conf` plus a per-agent login, a separate one per endpoint. The rest of Loki's and Prometheus' APIs is not proxied |
 | Node logs | Loki single binary, filesystem storage, retention `LOKI_RETENTION_PERIOD` (30 days) by the compactor, ingest limits. Agents redact IP addresses and node IDs before sending (`scopes/cointmu/alloy/`) |
 | Host metrics | Prometheus single binary with the remote-write receiver, no scrape targets of its own; retention by time and size. Each source pushes with its own login (`scripts/agent-cred.sh add <name> metrics`) and `job` label, so more sources (e.g. CointMU-Bot) only need a login |

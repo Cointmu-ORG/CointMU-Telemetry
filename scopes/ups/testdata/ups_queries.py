@@ -12,7 +12,7 @@ repository mounted at /repo.
     ups_queries.py logs <host> [<job>]     prints the lines of that job
                                            (default ups) as JSON
 
-RULE_GROUP (default ups) and DASHBOARD (default ups.json) come from the
+RULES, RULE_GROUP and DASHBOARD (default: those of scope ups) come from the
 environment, so scopes/cointmu/chain/check-chain.sh uses this file as well.
 """
 import json
@@ -26,9 +26,9 @@ import yaml
 
 PROMETHEUS = "http://prometheus:9090/api/v1/query"
 LOKI = "http://loki:3100/loki/api/v1/query_range"
-RULES = "/repo/grafana/provisioning/alerting/rules.yml"
+RULES = os.environ.get("RULES", "/repo/scopes/ups/alerting/rules.yml")
 RULE_GROUP = os.environ.get("RULE_GROUP", "ups")
-DASHBOARD = os.environ.get("DASHBOARD", "/repo/grafana/dashboards/ups.json")
+DASHBOARD = os.environ.get("DASHBOARD", "/repo/scopes/ups/dashboards/ups.json")
 TIMEOUT_SECONDS = 10
 LOG_LIMIT = 100
 LOG_LOOKBACK = "1h"

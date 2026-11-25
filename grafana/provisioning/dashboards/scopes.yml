@@ -1,0 +1,22 @@
+# One provider and one Grafana folder per scope (scopes/<name>/dashboards).
+# Folders are found by title, so no folderUid: the alert rules of a scope
+# create the same folder, and they are provisioned first.
+#
+# disableDeletion: a dashboard file that moves or is missing during a git pull
+# must not delete the dashboard (and everyone's stars) from the running Grafana.
+apiVersion: 1
+providers:
+  - name: cointmu
+    folder: CointMU
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana-dashboards/cointmu
+  - name: ups
+    folder: UPS
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana-dashboards/ups

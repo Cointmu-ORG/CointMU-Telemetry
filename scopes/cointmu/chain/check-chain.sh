@@ -46,7 +46,8 @@ pass() { echo "ok:   $*"; }
 compose() { docker compose -p "$PROJECT" -f "$ROOT_DIR/compose.yml" -f "$work/override.yml" --env-file "$work/env" "$@"; }
 in_logs() { docker exec "$PROJECT-logs-probe" "$@"; }
 queries() {
-  in_logs env RULE_GROUP=chain DASHBOARD=/repo/grafana/dashboards/chain.json \
+  in_logs env RULES=/repo/scopes/cointmu/alerting/rules.yml RULE_GROUP=chain \
+    DASHBOARD=/repo/scopes/cointmu/dashboards/chain.json \
     python3 /repo/scopes/ups/testdata/ups_queries.py "$@"
 }
 rule() { queries rules "${2:-0}" | sed -n "s/^$1 //p"; }
