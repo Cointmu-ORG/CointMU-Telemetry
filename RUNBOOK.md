@@ -2,6 +2,30 @@
 
 Commands run from the repository folder on the VM.
 
+## Deploying a config change
+
+```bash
+git pull --ff-only && docker compose up -d --no-deps --force-recreate <service>
+```
+
+`<service>` is the container that mounts the changed file. A plain `docker compose up -d` is not
+enough: `git pull` replaces a file (a new inode), a bind-mounted file keeps showing the old one to a
+running container, and Compose leaves a container alone when its section in `compose.yml` did not
+change. `--force-recreate` covers both a changed file and a changed `compose.yml`; `docker compose
+restart` would miss the second.
+
+| Changed | Service |
+|---|---|
+| `grafana/provisioning/` | `grafana` (dashboard JSON alone is picked up within seconds, no recreate) |
+| `prometheus/prometheus.yml` | `prometheus` |
+| `loki/config.yml` | `loki` |
+| `nginx/default.conf` | `docker compose restart proxy`. Recreating the proxy discards its log, which is the admin audit trail ("Admin access audit"); do that only when its section in `compose.yml` changed, and save the log first |
+| `nginx/local/` | nothing to recreate: `docker compose exec proxy nginx -s reload` (a folder mount) |
+| `.env` | plain `docker compose up -d <service>`: a changed value changes the container |
+
+Never rename `/opt/CointMU-Telemetry` or change `name:` in `compose.yml`: the volumes carry that name, and
+a different one starts the stack with empty databases.
+
 ## Key rotation (changes the pin)
 
 The app accepts only the public keys pinned in its build. Changing the server key before
@@ -541,8 +565,8 @@ copy is disabled. The old cron line, which copies all of `backup/`, keeps workin
 2. Add `DISCORD_WEBHOOK_APP_ERRORS`, `DISCORD_WEBHOOK_NODE_LOGS` and `DISCORD_WEBHOOK_INFRA` to
    `.env` (see `.env.example`). Leave one empty to keep that source off.
 3. Check outbound HTTPS to discord.com: test 1 in README.md ("Alerts"). Without it nothing arrives.
-4. `docker compose up -d`. This creates the `alerts-egress` network and recreates Grafana with its
-   alert rules.
+4. `docker compose up -d && docker compose up -d --no-deps --force-recreate grafana`. This creates the
+   `alerts-egress` network and recreates Grafana with its alert rules.
 5. `scripts/init-project.sh <owner email>`. It prints the same `DSN=` line as before and turns on
    the GlitchTip alert.
 6. Add the health check cron line (README.md, "Alerts"). Its backup check needs the stamp from
@@ -577,7 +601,7 @@ The pieces came in this order; do the steps that are not done yet, in order. Hos
    ```bash
    git pull
    nano .env      # DISCORD_WEBHOOK_UPS=<Grafana's #ups webhook>; empty = off
-   docker compose up -d grafana
+   docker compose up -d --no-deps --force-recreate grafana
    ```
    Grafana fires "UPS data missing" until the host ships metrics, so do the host part first or set
    the webhook only afterwards.
@@ -592,7 +616,7 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
 1. **VM.**
    ```bash
    git pull
-   docker compose up -d grafana     # Chain dashboard, chain rules, discord-chain contact point
+   docker compose up -d --no-deps --force-recreate grafana     # Chain dashboard, chain rules, discord-chain contact point
    scripts/agent-cred.sh add server101-1 metrics
    scripts/agent-cred.sh add server106-1 metrics
    ```
