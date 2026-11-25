@@ -3,5 +3,8 @@ providers:
   - name: geth
     type: file
     allowUiUpdates: false
+    # A dashboard file that moves or is missing during a git pull must not
+    # delete the dashboard (and everyone's stars) from the running Grafana.
+    disableDeletion: true
     options:
       path: /var/lib/grafana-dashboards

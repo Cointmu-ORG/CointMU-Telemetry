@@ -3,6 +3,10 @@
 # Images are pinned as tag@digest: Docker pulls by digest, the tag says which
 # release it is and lets Dependabot propose the next one (tag and digest).
 
+# Fixed, so the volumes (<name>_pg-data, ...) stay attached whatever the folder
+# is called. It is the name Docker derives from /opt/CointMU-Telemetry.
+name: cointmu-telemetry
+
 x-hardening: &hardening
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
