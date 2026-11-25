@@ -4,6 +4,7 @@
 #   tool <command>                  must exist on the host
 #   want <command>                  warning only if missing
 #   env <KEY> [required]            goes to /etc/default/alloy
+#   readable <KEY>                  files of this setting must be readable by user alloy
 #   user <name>                     system user of a collector
 #   conf <dest> <KEY>...            KEY=value file, written only if absent
 #   file <src> <dest> <mode>        root:root
@@ -13,6 +14,7 @@ logins logs metrics
 tool python3
 env GETH_LOG_FILES
 env GETH_JOURNAL_UNIT
+readable GETH_LOG_FILES
 user cointmu-chain
 conf /etc/cointmu-chain/cointmu-chain.conf NODES
 file scopes/cointmu/chain/chain-metrics.py /usr/local/lib/cointmu-chain/chain-metrics.py 755

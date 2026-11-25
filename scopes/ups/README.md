@@ -109,43 +109,14 @@ sudo -u nut /usr/local/lib/cointmu-ups/ups-notify.sh test      # a TEST message 
 journalctl -t cointmu-ups-notify -n 5 --no-pager                # "posted test"
 ```
 
-### Alloy (paths B and C)
+### Alloy and the metrics collector (paths B and C)
 
-Copy the VM's `certs/server.crt` over as well.
-
-```bash
-# Alloy, pinned, exactly as scopes/cointmu/alloy/README.md step 1 (apt repository,
-# alloy=1.21.0-1, apt-mark hold). This creates the alloy user and group.
-getent group alloy                                  # must print a line
-sudo install -d -m 755 /etc/alloy/conf.d
-sudo install -m 644 ups.alloy push-logs.alloy push-metrics.alloy /etc/alloy/conf.d/
-sudo install -m 644 server.crt /etc/alloy/telemetry.crt
-read -rsp 'log push password: ' PW; echo
-printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password
-read -rsp 'metrics push password: ' PW; echo
-printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/metrics-password; unset PW
-sudo install -m 644 alloy.env.example /etc/default/alloy
-sudoedit /etc/default/alloy   # AGENT_HOST, UPS_NAME, both URLs and users
-sudo systemctl enable --now alloy
-journalctl -u alloy -n 50 --no-pager        # no "error sending batch", no 401/403
-curl -s 127.0.0.1:12345/metrics | grep -E '^(loki_write_sent_entries_total|prometheus_remote_storage_samples_total)'
-```
-
-### Metrics collector (path C)
+`scripts/enroll.sh add <host> <ip> --scopes ups --type pve --ssh root@<alias> --set UPS_NAME=<ups> --set
+UPS=<ups>@localhost` on the telemetry VM (RUNBOOK.md, "Enroll a host"), then the printed commands.
+`install-agent.sh` installs Alloy, the config and the collector, but not the notifier above. Check:
 
 ```bash
-# its own user, not in group alloy
-sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cointmu-ups
-sudo install -m 755 ups-metrics.sh /usr/local/lib/cointmu-ups/
-sudo install -m 644 cointmu-ups.tmpfiles.conf /etc/tmpfiles.d/cointmu-ups.conf
-sudo systemd-tmpfiles --create /etc/tmpfiles.d/cointmu-ups.conf
-sudo install -m 644 cointmu-ups-metrics.service cointmu-ups-metrics.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now cointmu-ups-metrics.timer
-sleep 20
-sudo -u alloy cat /var/lib/cointmu-ups/ups.prom     # MUST print ups_up ... 1 and the values
-stat -c '%U:%G %a %n' /var/lib/cointmu-ups /var/lib/cointmu-ups/ups.prom
-#   cointmu-ups:alloy 2750 /var/lib/cointmu-ups
-#   cointmu-ups:alloy 640  /var/lib/cointmu-ups/ups.prom
+runuser -u alloy -- cat /var/lib/cointmu-ups/ups.prom     # MUST print ups_up ... 1 and the values
 systemd-analyze security cointmu-ups-metrics.service   # review; expect a low exposure score
 ```
 
