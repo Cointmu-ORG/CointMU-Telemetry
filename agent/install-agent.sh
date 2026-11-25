@@ -133,7 +133,8 @@ check_tools() {
   done < <(manifest_lines want)
 }
 
-alloy_version() { dpkg-query -W -f '${Status} ${Version}' alloy 2>/dev/null | sed -n 's/^install ok installed //p;s/^hold ok installed //p'; }
+# Empty if not installed (dpkg-query fails then).
+alloy_version() { { dpkg-query -W -f '${Status} ${Version}' alloy 2>/dev/null || true; } | sed -n 's/^install ok installed //p;s/^hold ok installed //p'; }
 pin_value() { sed -n "s/^$1=//p" "$work/agent/alloy.pin"; }
 
 check_alloy_package() {

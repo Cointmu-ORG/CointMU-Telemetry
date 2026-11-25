@@ -114,9 +114,9 @@ check_refusals() {
   put_bundle "$host"
   before=$(host_state "$host")
   refuse_on "not root" "run as root" "$host" runuser -u netadmin -- bash -c 'cat /root/install-agent.sh 2>/dev/null; bash -s -- /root/b.tar' < agent/install-agent.sh
-  refuse_on "truncated bundle" "truncated?" "$host" bash -c 'head -c 1000000 /root/b.tar > /root/t.tar; bash /root/install-agent.sh /root/t.tar'
-  refuse_on "tampered bundle" "does not match its manifest" "$host" bash -c 'rm -rf /root/x && mkdir /root/x && tar -xf /root/b.tar -C /root/x && echo x >> /root/x/alloy.env && tar -C /root/x -cf /root/t.tar . && bash /root/install-agent.sh /root/t.tar'
-  refuse_on "file outside the manifest" "does not list" "$host" bash -c 'rm -rf /root/x && mkdir /root/x && tar -xf /root/b.tar -C /root/x && echo x > /root/x/extra && tar -C /root/x -cf /root/t.tar . && bash /root/install-agent.sh /root/t.tar'
+  refuse_on "truncated bundle" "truncated?" "$host" bash -c 'umask 077; head -c 1000000 /root/b.tar > /root/t.tar; bash /root/install-agent.sh /root/t.tar'
+  refuse_on "tampered bundle" "does not match its manifest" "$host" bash -c 'umask 077; rm -rf /root/x && mkdir /root/x && tar -xf /root/b.tar -C /root/x && echo x >> /root/x/alloy.env && tar -C /root/x -cf /root/t.tar . && bash /root/install-agent.sh /root/t.tar'
+  refuse_on "file outside the manifest" "does not list" "$host" bash -c 'umask 077; rm -rf /root/x && mkdir /root/x && tar -xf /root/b.tar -C /root/x && echo x > /root/x/extra && tar -C /root/x -cf /root/t.tar . && bash /root/install-agent.sh /root/t.tar'
   refuse_on "bundle readable by others" "expected 600" "$host" bash -c 'cp /root/b.tar /root/t.tar && chmod 644 /root/t.tar && bash /root/install-agent.sh /root/t.tar'
   refuse_on "wrong host type" "this host is a 'pve'" "$host" bash -c 'mkdir -p /tmp/s && printf "#!/bin/sh\n" > /tmp/s/pveversion && chmod +x /tmp/s/pveversion && PATH=/tmp/s:$PATH bash /root/install-agent.sh /root/b.tar; s=$?; rm -r /tmp/s; exit $s'
   refuse_on "armhf" "no 32-bit ARM build" "$host" bash -c 'mkdir -p /tmp/s && printf "#!/bin/sh\necho armhf\n" > /tmp/s/dpkg && chmod +x /tmp/s/dpkg && PATH=/tmp/s:$PATH bash /root/install-agent.sh /root/b.tar; s=$?; rm -r /tmp/s; exit $s'
