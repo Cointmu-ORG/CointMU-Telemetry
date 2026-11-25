@@ -77,7 +77,8 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh scopes/cointmu/alloy/check-redaction.sh
+          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
+          scopes/cointmu/alloy/check-redaction.sh
           scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
   # Same pinned image as check-redaction.sh, so there is one Alloy version to bump.
@@ -165,6 +166,20 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  # This commit's Grafana provisioning deployed over the previous one with the
+  # command from RUNBOOK.md, on the same volume.
+  grafana:
+    name: grafana
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - run: grafana/check-upgrade.sh "$OLD_REF"
+        env:
+          OLD_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^1' }}
 
   # GlitchTip and the proxy from a clean start, as a deployment runs them,
   # until every health check passes. The proxy's own check goes through nginx

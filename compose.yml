@@ -169,7 +169,7 @@ services:
       # One login per admin (RUNBOOK.md, "Grafana users"); new users can only
       # read dashboards until an admin gives them more.
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
-      # #node-logs webhook for grafana/provisioning/alerting/contact-points.yml.
+      # #node-logs webhook for scopes/cointmu/alerting/contact-points.yml.
       # Grafana refuses an empty Discord URL, so "off" (empty in .env) becomes
       # an address on the reserved .invalid domain that can never resolve.
       DISCORD_WEBHOOK_NODE_LOGS: ${DISCORD_WEBHOOK_NODE_LOGS:-https://discord.invalid/webhook-not-configured}
@@ -178,8 +178,19 @@ services:
       # #block-update webhook for the chain rules, same fallback.
       DISCORD_WEBHOOK_BLOCK_UPDATE: ${DISCORD_WEBHOOK_BLOCK_UPDATE:-https://discord.invalid/webhook-not-configured}
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana-dashboards:ro
+      # Grafana reads provisioning/alerting without subfolders, so each scope's
+      # files are mounted into it one by one. After a git pull that changed one
+      # of them: RUNBOOK.md, "Deploying a config change".
+      - { type: bind, source: ./grafana/provisioning/datasources, target: /etc/grafana/provisioning/datasources, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./grafana/provisioning/dashboards, target: /etc/grafana/provisioning/dashboards, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./grafana/provisioning/alerting/policies.yml, target: /etc/grafana/provisioning/alerting/policies.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./grafana/provisioning/alerting/templates.yml, target: /etc/grafana/provisioning/alerting/templates.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/cointmu/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/cointmu-rules.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/cointmu/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/cointmu-contact-points.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/cointmu/dashboards, target: /var/lib/grafana-dashboards/cointmu, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/ups/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/ups-rules.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/ups/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/ups-contact-points.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/ups/dashboards, target: /var/lib/grafana-dashboards/ups, read_only: true, bind: { create_host_path: false } }
       - grafana-data:/var/lib/grafana
     read_only: true
     tmpfs: [/tmp]
