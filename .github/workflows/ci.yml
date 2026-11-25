@@ -77,7 +77,7 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
+          scripts/*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh agent/*.sh
           scopes/cointmu/alloy/check-redaction.sh
           scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
@@ -92,10 +92,20 @@ jobs:
         run: |
           image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' scopes/cointmu/alloy/check-redaction.sh)
           test -n "$image"
-          for config in scopes/cointmu/alloy/config.alloy scopes/ups/config.alloy; do
+          mkdir conf.d
+          for config in agent/*.alloy scopes/*/*.alloy scopes/*/alloy/*.alloy; do
             docker run --rm -v "$PWD/$config:/config.alloy:ro" --entrypoint /bin/alloy "$image" \
               fmt --test /config.alloy
+            cp "$config" conf.d/
           done
+
+      # Component names must be unique across all scopes: a host may run any
+      # combination, and Alloy loads the folder as one config.
+      - name: alloy validate (all fragments together)
+        run: |
+          image=$(sed -n 's/^readonly ALLOY_IMAGE="\(.*\)"$/\1/p' scopes/cointmu/alloy/check-redaction.sh)
+          docker run --rm -v "$PWD/conf.d:/conf.d:ro" --entrypoint /bin/alloy "$image" \
+            validate --stability.level=experimental /conf.d
 
   # The agent config against a real Loki, plus Grafana starting from its
   # provisioning (Loki and Prometheus data sources, all rule groups) with no
@@ -247,8 +257,18 @@ jobs:
 
       - run: scopes/ups/check-ups.sh
 
+  # Agents move from the old single config to the fragments on the same data
+  # folder: no line lost, none twice.
+  migration:
+    name: migration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: agent/check-migration.sh
+
   # The chain metrics end to end in their own compose project: chain-metrics.py
-  # against stub RPCs on a fake node, scopes/cointmu/alloy/config.alloy through nginx
+  # against stub RPCs on a fake node, scopes/cointmu/alloy/cointmu.alloy through nginx
   # into Prometheus, the Chain dashboard and the chain rules per scenario, and
   # Alloy without its metrics password.
   chain:

@@ -5,7 +5,7 @@
 # it never touches a running deployment and runs anywhere with Docker.
 #
 # A fake UPS host (testdata/metrics-host.sh: dummy-ups, ups-metrics.sh, the
-# owner/mode checks) feeds scopes/ups/config.alloy, which pushes the metrics
+# owner/mode checks) feeds scopes/ups/ups.alloy, which pushes the metrics
 # and test journal lines (testdata/ups-journal.txt) through nginx. Checks:
 # - remote write via nginx: series arrive; 2xx and 403 in the noip log; wrong
 #   password, a log login and other paths refused (401, 401, 404); a
@@ -140,12 +140,14 @@ start_alloy() {
     -e AGENT_HOST="$AGENT_HOST" -e UPS_NAME=check -e UPS_JOURNAL_PATH=/journal \
     -e LOKI_PUSH_URL=https://proxy:8443/loki/api/v1/push -e LOKI_PUSH_USER=ups-check-logs \
     -e METRICS_PUSH_URL=https://proxy:8443/prometheus/api/v1/write -e METRICS_PUSH_USER=ups-check-metrics \
-    -v "$PWD/config.alloy:/etc/alloy/config.alloy:ro" \
+    -v "$PWD/ups.alloy:/etc/alloy/conf.d/ups.alloy:ro" \
+    -v "$ROOT_DIR/agent/push-logs.alloy:/etc/alloy/conf.d/push-logs.alloy:ro" \
+    -v "$ROOT_DIR/agent/push-metrics.alloy:/etc/alloy/conf.d/push-metrics.alloy:ro" \
     -v "$work/alloy/push-password:/etc/alloy/push-password:ro" \
     -v "$work/alloy/metrics-password:/etc/alloy/metrics-password:ro" \
     -v "$work/alloy/telemetry.crt:/etc/alloy/telemetry.crt:ro" \
     -v "$PROJECT-textfile:/var/lib/cointmu-ups:ro" -v "$PROJECT-journal:/journal:ro" \
-    "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy /etc/alloy/config.alloy >/dev/null
+    "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy /etc/alloy/conf.d >/dev/null
 }
 
 # $1 expected status, $2 description, rest: curl arguments.

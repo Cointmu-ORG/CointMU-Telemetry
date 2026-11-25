@@ -624,7 +624,7 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
    The chain rules stay quiet until a node sends its first sample ("missing" needs a sample in the
    last 24 h), so the order of the host steps does not page anyone.
 2. **CT 106.** "Metrics collector", then "Alloy" (scopes/cointmu/chain/README.md, steps 3 and 4). The new
-   `config.alloy` goes in only after `alloy-preflight.sh` passes.
+   fragments go in only after `alloy-preflight.sh` passes.
 3. **server101.** Step 1 there first: HTTP RPC for the miner, one soft `pm2 restart cointmu-miner`
    while CT 106 keeps mining. Then steps 3 and 4 with both roles in NODES.
 4. **Check.** Dashboard "Chain": three nodes (server101 bootnode and miner, CT 106 miner) at the same

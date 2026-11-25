@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Runs config.alloy in the pinned Alloy image against the running stack's Loki
+# Runs cointmu.alloy in the pinned Alloy image against the running stack's Loki
 # (straight over the internal network, not through nginx), feeds it
 # testdata/cointmu-check-error.log and fails if a line arrives unredacted,
 # with the wrong labels, or if the DEBUG line is not dropped.
-# Needs the compose stack up (at least loki). Run after changing config.alloy.
+# Needs the compose stack up (at least loki). Run after changing cointmu.alloy.
 # Its lines go to host="redaction-check-<time>"; a delete request removes them
 # (Loki's compactor deletes them within about two hours).
 #
@@ -52,12 +52,14 @@ docker run -d --name "$CONTAINER" --network "$network" \
   -e AGENT_HOST="$HOST_LABEL" \
   -e GETH_LOG_FILES=/logs/cointmu-check-error.log \
   -e GETH_JOURNAL_UNIT= \
-  -v "$PWD/config.alloy:/etc/alloy/config.alloy:ro" \
+  -v "$PWD/cointmu.alloy:/etc/alloy/conf.d/cointmu.alloy:ro" \
+  -v "$PWD/../../../agent/push-logs.alloy:/etc/alloy/conf.d/push-logs.alloy:ro" \
+  -v "$PWD/../../../agent/push-metrics.alloy:/etc/alloy/conf.d/push-metrics.alloy:ro" \
   -v "$work/etc/push-password:/etc/alloy/push-password:ro" \
   -v "$work/etc/telemetry.crt:/etc/alloy/telemetry.crt:ro" \
   -v "$work/logs:/logs" \
   "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy \
-  --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy >/dev/null
+  --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/conf.d >/dev/null
 
 # tail_from_end: append only once Alloy tails the file, by its own metric;
 # a fixed sleep loses the lines when Alloy starts slowly (busy runner). The

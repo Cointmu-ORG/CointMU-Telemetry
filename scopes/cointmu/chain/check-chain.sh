@@ -5,7 +5,7 @@
 # it never touches a running deployment and runs anywhere with Docker.
 #
 # A fake geth node (testdata/node-host.sh: stub RPCs, chain-metrics.py, the
-# owner/mode and preflight checks) feeds scopes/cointmu/alloy/config.alloy, which
+# owner/mode and preflight checks) feeds scopes/cointmu/alloy/cointmu.alloy, which
 # pushes the metrics through nginx. Checks:
 # - chain.prom passes promtool check metrics
 # - every chain.json panel query returns data
@@ -152,11 +152,13 @@ start_alloy() {
     -e AGENT_HOST="$host" -e GETH_LOG_FILES=/logs/cointmu-miner-error.log -e GETH_JOURNAL_UNIT= \
     -e LOKI_PUSH_URL=https://proxy:8443/loki/api/v1/push -e LOKI_PUSH_USER=chain-check-logs \
     -e METRICS_PUSH_URL=https://proxy:8443/prometheus/api/v1/write -e METRICS_PUSH_USER=chain-check-metrics \
-    -v "$ROOT_DIR/scopes/cointmu/alloy/config.alloy:/etc/alloy/config.alloy:ro" \
+    -v "$ROOT_DIR/scopes/cointmu/alloy/cointmu.alloy:/etc/alloy/conf.d/cointmu.alloy:ro" \
+    -v "$ROOT_DIR/agent/push-logs.alloy:/etc/alloy/conf.d/push-logs.alloy:ro" \
+    -v "$ROOT_DIR/agent/push-metrics.alloy:/etc/alloy/conf.d/push-metrics.alloy:ro" \
     -v "$work/alloy/push-password:/etc/alloy/push-password:ro" "${password_mount[@]}" \
     -v "$work/alloy/telemetry.crt:/etc/alloy/telemetry.crt:ro" \
     -v "$logs:/logs" -v "$PROJECT-textfile:/var/lib/cointmu-chain:ro" \
-    "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy /etc/alloy/config.alloy >/dev/null
+    "$ALLOY_IMAGE" run --stability.level=experimental --storage.path=/tmp/alloy /etc/alloy/conf.d >/dev/null
 }
 
 # $1 rule uid, $2 expected state prefix, $3 offset in seconds (optional).

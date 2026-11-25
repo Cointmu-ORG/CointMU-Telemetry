@@ -26,7 +26,7 @@ UPS ─USB─ NUT ──────┼─ B: NUT journal ─▶ Alloy ──HTT
 | `upssched.conf.snippet` | `/etc/nut/upssched.conf` (replaces it) | root:nut 0640 |
 | `upsmon.conf.snippet` | lines merged into `/etc/nut/upsmon.conf` | unchanged (root:nut 0640) |
 | `upsd.users.snippet` | appended to `/etc/nut/upsd.users` | unchanged (root:nut 0640) |
-| `config.alloy` | `/etc/alloy/config.alloy` | root:root 0644 |
+| `ups.alloy`, `agent/push-logs.alloy`, `agent/push-metrics.alloy` | `/etc/alloy/conf.d/` | root:root 0644 |
 | `alloy.env.example` | `/etc/default/alloy`, filled in | root:root 0644 |
 | `certs/server.crt` from the VM | `/etc/alloy/telemetry.crt` | root:root 0644 |
 | log and metrics passwords (`scripts/agent-cred.sh`) | `/etc/alloy/push-password`, `/etc/alloy/metrics-password` | root:alloy 0640 |
@@ -117,7 +117,8 @@ Copy the VM's `certs/server.crt` over as well.
 # Alloy, pinned, exactly as scopes/cointmu/alloy/README.md step 1 (apt repository,
 # alloy=1.21.0-1, apt-mark hold). This creates the alloy user and group.
 getent group alloy                                  # must print a line
-sudo install -m 644 config.alloy /etc/alloy/config.alloy
+sudo install -d -m 755 /etc/alloy/conf.d
+sudo install -m 644 ups.alloy push-logs.alloy push-metrics.alloy /etc/alloy/conf.d/
 sudo install -m 644 server.crt /etc/alloy/telemetry.crt
 read -rsp 'log push password: ' PW; echo
 printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password
