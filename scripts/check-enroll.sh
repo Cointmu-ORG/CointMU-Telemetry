@@ -15,28 +15,17 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-ROOT_DIR="$PWD"
-readonly ROOT_DIR
 readonly TEST_IMAGE=cointmu-enroll-test:local
 readonly PROJECT="cointmu-enroll-check-$$"
-readonly WAIT_SECONDS=90
 readonly HOST=probe
-readonly HAND_WRITTEN='192.0.2.9 1;'
 readonly SETTINGS=(--set "GETH_LOG_FILES=/var/log/geth-*.log" --set NODES=miner=http://127.0.0.1:8545)
 readonly UNAUTHORIZED=401 FORBIDDEN=403 NO_CONTENT=204
 
-work=$(mktemp -d)
-repo="$work/repo"
-failures=0
-fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
-pass() { echo "ok:   $*"; }
-check() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$what"; else fail "$what"; fi; }
-enroll() { (cd "$repo" && scripts/enroll.sh "$@"); }
-compose() { (cd "$repo" && docker compose "$@"); }
+# shellcheck source=testing/stack.sh
+. testing/stack.sh
 cleanup() {
   docker rm -f "$PROJECT-agent" "$PROJECT-other" >/dev/null 2>&1 || true
-  compose down -v >/dev/null 2>&1 || true
-  rm -rf "${work:?}"
+  stack_cleanup
 }
 trap cleanup EXIT
 
@@ -48,47 +37,20 @@ refuse() {
   else fail "$what: $output"; fi
 }
 
-prepare() {
-  git clone -q "$ROOT_DIR" "$repo"
-  git -C "$repo" checkout -q "$(git rev-parse HEAD)"
-  sed -e 's/^TLS_GID=.*/TLS_GID=12345/' -e 's/^BIND_IP=.*/BIND_IP=127.0.0.1/' \
-    -e "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" \
-    -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" \
-    -e "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)/" "$repo/.env.example" > "$repo/.env"
-  echo "COMPOSE_PROJECT_NAME=$PROJECT" >> "$repo/.env"
-  mkdir "$repo/certs"
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=proxy \
-    -addext subjectAltName=DNS:proxy -keyout "$repo/certs/server.key" -out "$repo/certs/server.crt" 2>/dev/null
-  chmod 644 "$repo/certs/server.key"
-  : > "$repo/nginx/local/admin-allow.conf"
-  echo "$HAND_WRITTEN" > "$repo/nginx/local/agent-allow.conf"
-  : > "$repo/nginx/local/loki-agents.htpasswd"
-  : > "$repo/nginx/local/metrics-agents.htpasswd"
-  # Loaded by docker compose on its own. GlitchTip is not started.
-  cat > "$repo/compose.override.yml" <<'EOF'
-services:
-  proxy:
-    ports: !reset []
-    extra_hosts: ["web:127.0.0.1"]
-EOF
-  # A logs-only scope, so plain curl can be the agent.
+# A logs-only scope, so plain curl can be the agent.
+add_test_scope() {
   mkdir -p "$repo/scopes/testscope"
   printf 'logins logs\nverify logs {job="enroll-test",host="HOST"}\n' > "$repo/scopes/testscope/agent.manifest"
   [[ -f "$repo/agent/install-agent.sh" ]] || echo '#!/bin/sh' > "$repo/agent/install-agent.sh"
 }
 
-start_stack() {
-  compose up -d --no-deps loki prometheus grafana proxy >"$work/up.log" 2>&1 || { cat "$work/up.log" >&2; exit 1; }
-  docker run -d --name "$PROJECT-agent" --network "${PROJECT}_frontend" -v "$repo/certs/server.crt:/server.crt:ro" \
-    "$TEST_IMAGE" sleep infinity >/dev/null
-  docker run -d --name "$PROJECT-other" --network "${PROJECT}_frontend" -v "$repo/certs/server.crt:/server.crt:ro" \
-    "$TEST_IMAGE" sleep infinity >/dev/null
-  agent_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$PROJECT-agent")
-  local deadline=$((SECONDS + WAIT_SECONDS))
-  until compose exec -T grafana wget -qO- http://loki:3100/ready 2>/dev/null </dev/null | grep '^ready' >/dev/null; do
-    (( SECONDS < deadline )) || { compose ps; exit 1; }
-    sleep 2
+start_agents() {
+  local name
+  for name in agent other; do
+    docker run -d --name "$PROJECT-$name" --network "${PROJECT}_frontend" -v "$repo/certs/server.crt:/server.crt:ro" \
+      "$TEST_IMAGE" sleep infinity >/dev/null
   done
+  agent_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$PROJECT-agent")
 }
 
 # A package that matches the (changed) pin; the real one is 168 MB.
@@ -130,9 +92,11 @@ check_refusals() {
   refuse "tampered package" "does not match agent/alloy.pin" add h 10.0.1.5 --scopes testscope --ssh me@h
   fake_package
   refuse "adopt without an existing login" "to adopt" adopt h 10.0.1.5 --scopes cointmu --ssh me@h --login h-1
-  compose stop proxy >/dev/null 2>&1
+  # Not with compose: its start would wait for GlitchTip.
+  docker stop "$PROJECT-proxy-1" >/dev/null
   refuse "add while nginx cannot reload" "nothing changed there" add h 10.0.1.5 --scopes cointmu --ssh me@h "${SETTINGS[@]}"
-  compose start proxy >/dev/null 2>&1
+  docker start "$PROJECT-proxy-1" >/dev/null
+  wait_for "proxy is back" compose exec -T proxy nginx -t
   after=$(state_of_access)
   if [[ "$before" == "$after" ]]; then pass "refused and failed adds leave nothing behind"; else fail "left behind: $(diff <(echo "$before") <(echo "$after"))"; fi
   if sudo -n true 2>/dev/null; then
@@ -206,8 +170,10 @@ check_reissue() {
 }
 
 docker build -q -t "$TEST_IMAGE" scopes/ups/testdata >/dev/null
-prepare
+prepare_stack
+add_test_scope
 start_stack
+start_agents
 check_refusals
 check_key_refusal
 check_add

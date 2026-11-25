@@ -77,7 +77,8 @@ jobs:
 
       - run: >
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE"
-          scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh agent/*.sh
+          -x scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
+          agent/*.sh testing/*.sh
           scopes/cointmu/alloy/check-redaction.sh
           scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
