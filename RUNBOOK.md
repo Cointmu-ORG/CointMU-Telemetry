@@ -225,7 +225,7 @@ password-reset links, invitations and MFA trust cookies. Then:
 3. Apply it:
    - **#app-errors:** `scripts/init-project.sh <owner email>`, which updates GlitchTip's recipient.
    - **#node-logs, #ups, #block-update (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
-   - **#infra:** nothing; `healthcheck.sh` reads `.env` on every run.
+   - **#infra:** `docker compose up -d grafana`; `healthcheck.sh` reads `.env` on every run.
 4. Send a test message (README.md, "Alerts").
 
 **If leaked:** anyone with the URL can post to that channel. Delete the webhook in Discord **first**:

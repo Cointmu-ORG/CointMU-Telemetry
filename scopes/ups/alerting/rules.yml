@@ -3,7 +3,7 @@
 apiVersion: 1
 groups:
   # UPS metrics from the UPS host (scopes/ups/), sent to #ups (policies.yml,
-  # label source=ups). The host posts every power event itself (on battery,
+  # label scope=ups). The host posts every power event itself (on battery,
   # back on mains, low battery, shutdown) within 30 s; these rules add only
   # what needs a threshold or what the host cannot report about itself, so
   # nothing is posted twice. Each rule is A (Prometheus, instant) -> B (last
@@ -21,7 +21,7 @@ groups:
         for: 10m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: "(1 = on battery)"
         data:
@@ -49,7 +49,7 @@ groups:
         for: 1m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: "% battery charge (limit 50)"
         data:
@@ -78,7 +78,7 @@ groups:
         for: 1m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: "min of runtime left (limit 15)"
         data:
@@ -106,7 +106,7 @@ groups:
         for: 2m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: "(0 = upsc cannot read the UPS)"
         data:
@@ -136,7 +136,7 @@ groups:
         for: 0m
         noDataState: OK
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: "s between the scrape and the file's content (limit 60)"
         data:
@@ -172,7 +172,7 @@ groups:
         for: 0m
         noDataState: Alerting
         execErrState: KeepLast
-        labels: { source: ups }
+        labels: { scope: ups }
         annotations:
           value_meaning: 'UPS series in the last 5 min ("-": none arrived)'
         data:

@@ -241,6 +241,7 @@ All alerts go to one Discord server, one channel per source:
 | #app-errors | GlitchTip: each new issue of the desktop project, once | `DISCORD_WEBHOOK_APP_ERRORS` | `scripts/init-project.sh <email>` (re-run after a change) |
 | #node-logs | Grafana alert rules on the geth node logs (log rules only) | `DISCORD_WEBHOOK_NODE_LOGS` | `docker compose up -d grafana` |
 | #infra | `scripts/healthcheck.sh` from cron: VM health, independent of Grafana and Loki | `DISCORD_WEBHOOK_INFRA` | read on every run |
+| #infra | Grafana: rules without a known `scope` label, so a forgotten label is noticed | `DISCORD_WEBHOOK_INFRA` | `docker compose up -d grafana` |
 | #ups | Grafana alert rules on the UPS metrics (thresholds, stale or missing data) | `DISCORD_WEBHOOK_UPS` | `docker compose up -d grafana` |
 | #ups | The UPS host itself: power events ("UPS monitoring") | its own webhook, on the host only | read on every event |
 | #block-update | Grafana alert rules on the chain metrics ("Chain metrics") | `DISCORD_WEBHOOK_BLOCK_UPDATE` | `docker compose up -d grafana` |
