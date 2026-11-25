@@ -246,6 +246,8 @@ All alerts go to one Discord server, one channel per source:
 | #infra | Grafana: rules without a known `scope` label, so a forgotten label is noticed | `DISCORD_WEBHOOK_INFRA` | `docker compose up -d grafana` |
 | #ups | Grafana alert rules on the UPS metrics (thresholds, stale or missing data) | `DISCORD_WEBHOOK_UPS` | `docker compose up -d grafana` |
 | #ups | The UPS host itself: power events ("UPS monitoring") | its own webhook, on the host only | read on every event |
+| #servers | Grafana alert rules on the enrolled servers (scope `infra`) | `DISCORD_WEBHOOK_SERVERS` | `docker compose up -d grafana` |
+| #servers, #infra | The watchdog on another machine ([scopes/watchdog/](scopes/watchdog/README.md)) | its own two webhooks, on that host only | read on every post |
 | #block-update | Grafana alert rules on the chain metrics ("Chain metrics") | `DISCORD_WEBHOOK_BLOCK_UPDATE` | `docker compose up -d grafana` |
 | #block-update | Later: the CointMU-Bot block feed | its own webhook, in the bot's config only | the bot |
 
@@ -274,6 +276,8 @@ Webhook → Copy Webhook URL, then put it in `.env` under that channel's variabl
   - A firing alert repeats at most every 12 h, and its resolution is posted once.
 - **#ups (Grafana):** the rule, the host and UPS, the value and the UPS dashboard link.
 - **#ups (host):** the event, the UPS, the host label, charge and runtime.
+- **#servers (Grafana):** the rule, the host, the part (filesystem, disk, pool, sensor), the value and the
+  Servers dashboard link.
 - **#block-update (Grafana):** the rule, the host and role, the value and the Chain dashboard link.
 - **#infra:** the check, the VM's host name, the value against its limit, and the Grafana link.
   - Checks: disk at 85 % or more; a compose service not running or unhealthy (Loki through `/ready`);
@@ -307,7 +311,7 @@ network team to allow it through their firewall or proxy.
 ```bash
 # 1. Webhook and VM egress: a test message to each configured channel (expect 204).
 #    The URL goes to curl through a config file descriptor, never on the command line.
-for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA DISCORD_WEBHOOK_UPS DISCORD_WEBHOOK_BLOCK_UPDATE; do
+for var in DISCORD_WEBHOOK_APP_ERRORS DISCORD_WEBHOOK_NODE_LOGS DISCORD_WEBHOOK_INFRA DISCORD_WEBHOOK_UPS DISCORD_WEBHOOK_BLOCK_UPDATE DISCORD_WEBHOOK_SERVERS; do
   url=$(sed -n "s/^$var=//p" .env); [ -n "$url" ] || continue
   printf '{"content":"test: %s on %s","allowed_mentions":{"parse":[]}}' "$var" "$(hostname -s)" \
     | curl -sS -o /dev/null -w "$var: %{http_code}\n" -H 'Content-Type: application/json' \

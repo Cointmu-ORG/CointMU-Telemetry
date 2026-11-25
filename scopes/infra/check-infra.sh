@@ -3,6 +3,8 @@
 # - infra-metrics.py against stub tools; its output as promtool sees it
 # - every query of servers.json on synthetic series: data for a host with every
 #   kind of hardware, and only for the selected host
+# - every alert rule per scenario: what fires, for which host, and nothing else
+# About three minutes.
 # Needs Docker (the pinned Prometheus image and a small test image).
 #
 #   scopes/infra/check-infra.sh
@@ -24,4 +26,6 @@ in_image python3 /repo/scopes/infra/testdata/test_infra_metrics.py /out
 for file in "$work"/*.prom; do promtool check metrics < "$file"; done
 in_image python3 /repo/scopes/infra/testdata/check_panels.py /out
 promtool test rules /out/panels.yml
+in_image python3 /repo/scopes/infra/testdata/check_rules.py /out
+promtool test rules /out/rules-test.yml
 echo "OK: scope infra as expected"

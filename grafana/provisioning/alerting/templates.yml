@@ -2,7 +2,8 @@
 # the dashboard on the campus LAN. A #ups message: the rule, host and UPS, the
 # value and the UPS dashboard link. A #block-update message: the rule, host and
 # role, the value and the Chain dashboard link. An #infra message: the rule, host,
-# value and the alert list link. Never log lines, label dumps or
+# value and the alert list link. A #servers message: the rule, host, the part
+# (filesystem, disk, ...), the value and the Servers dashboard link. Never log lines, label dumps or
 # silence links: the default Grafana template would include all labels and
 # annotations.
 # Literal "$" in this file would be read as an environment variable.
@@ -28,3 +29,7 @@ templates:
       {{ define "cointmu.infra_message" }}{{ range .Alerts }}host: {{ or .Labels.host "all hosts" }}
       {{ if eq .Status "firing" }}value: {{ with .Values.B }}{{ printf "%.0f" . }}{{ else }}-{{ end }} {{ .Annotations.value_meaning }}
       {{ end }}{{ end }}alerts: {{ .ExternalURL }}alerting/list{{ end }}
+
+      {{ define "cointmu.servers_message" }}{{ range .Alerts }}host: {{ or .Labels.host "several hosts" }}{{ with .Labels.mountpoint }}, filesystem: {{ . }}{{ end }}{{ with .Labels.storage }}, storage: {{ . }}{{ end }}{{ with .Labels.zpool }}, pool: {{ . }}{{ end }}{{ with .Labels.device }}, disk: {{ . }}{{ end }}{{ with .Labels.chip }}, sensor: {{ . }}{{ end }}{{ with .Labels.gpu }}, GPU: {{ . }}{{ end }}{{ with .Labels.collector }}, collector: {{ . }}{{ end }}
+      {{ if eq .Status "firing" }}value: {{ with .Values.B }}{{ printf "%.0f" . }}{{ else }}-{{ end }} {{ .Annotations.value_meaning }}
+      {{ end }}{{ end }}dashboard: {{ .ExternalURL }}d/servers{{ with .CommonLabels.host }}?var-host={{ . }}{{ end }}{{ end }}

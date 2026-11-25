@@ -197,6 +197,8 @@ services:
       DISCORD_WEBHOOK_UPS: ${DISCORD_WEBHOOK_UPS:-https://discord.invalid/webhook-not-configured}
       # #block-update webhook for the chain rules, same fallback.
       DISCORD_WEBHOOK_BLOCK_UPDATE: ${DISCORD_WEBHOOK_BLOCK_UPDATE:-https://discord.invalid/webhook-not-configured}
+      # #servers webhook for the rules of scope infra, same fallback.
+      DISCORD_WEBHOOK_SERVERS: ${DISCORD_WEBHOOK_SERVERS:-https://discord.invalid/webhook-not-configured}
       # #infra webhook: platform rules and rules without a known scope. The same
       # one scripts/healthcheck.sh reads, same fallback.
       DISCORD_WEBHOOK_INFRA: ${DISCORD_WEBHOOK_INFRA:-https://discord.invalid/webhook-not-configured}
@@ -215,6 +217,8 @@ services:
       - { type: bind, source: ./scopes/ups/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/ups-rules.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/ups/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/ups-contact-points.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/ups/dashboards, target: /var/lib/grafana-dashboards/ups, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/infra/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/infra-rules.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/infra/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/infra-contact-points.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/infra/dashboards, target: /var/lib/grafana-dashboards/infra, read_only: true, bind: { create_host_path: false } }
       - grafana-data:/var/lib/grafana
     read_only: true

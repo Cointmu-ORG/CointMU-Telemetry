@@ -1,0 +1,563 @@
+# Alert rules of scope infra, sent to #servers; the two about the platform itself
+# (source=platform) to #infra (policies.yml). Each rule is A (Prometheus,
+# instant) -> B (last value per series) -> C (threshold on B); the message shows
+# B. Tested on synthetic series by scopes/infra/check-infra.sh. Literal "$" in
+# this file would be read as an environment variable.
+#
+# No data is OK everywhere: a host without the hardware has no such series, and
+# a host that stops sending is "Host down" or "Agent silent". On a query error a
+# rule keeps its last state; healthcheck.sh reports Prometheus itself.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: infra
+    folder: Infra
+    interval: 1m
+    rules:
+      # Ping, SSH and 8006 all fail and no metrics arrive, for 3 minutes. Based
+      # on the probes, which go on while the host is enrolled, so it fires until
+      # the host is back or removed. If most hosts are down at once, only "Many
+      # hosts down" fires. proxmox23 carries this VM: the watchdog on another
+      # machine reports it.
+      - uid: infra-host-down
+        title: Host down
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "(1 = no probe answers and no metrics arrive for 3 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                ((max by (host) (max_over_time(probe_success{scope="infra"}[3m])) == bool 0) == 1 unless on (host)
+                last_over_time(node_time_seconds{scope="infra"}[3m])) unless on () ((count((max by (host)
+                (max_over_time(probe_success{scope="infra"}[3m])) == bool 0) == 1 unless on (host)
+                last_over_time(node_time_seconds{scope="infra"}[3m])) >= 4) > 0.5 * count(count by (host)
+                (probe_success{scope="infra"})))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # More than half of the probed hosts, at least 4. One message instead of
+      # one per host.
+      - uid: infra-many-down
+        title: Many hosts down
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "hosts down at once (network, power, or this VM's own uplink)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (count((max by (host) (max_over_time(probe_success{scope="infra"}[3m])) == bool 0) == 1 unless on (host)
+                last_over_time(node_time_seconds{scope="infra"}[3m])) >= 4) > 0.5 * count(count by (host)
+                (probe_success{scope="infra"}))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Metrics in the last 24 hours, none for 10 minutes, and the host is not
+      # down: Alloy stopped, or its pushes are refused. Also covers a host that
+      # dies while the probes do not work.
+      - uid: infra-agent-silent
+        title: Agent silent
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "s since its last metrics"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (time() - max by (host) (last_over_time(node_time_seconds{scope="infra"}[24h]))) unless on (host)
+                last_over_time(node_time_seconds{scope="infra"}[10m]) unless on (host) ((max by (host)
+                (max_over_time(probe_success{scope="infra"}[3m])) == bool 0) == 1 unless on (host)
+                last_over_time(node_time_seconds{scope="infra"}[3m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # It pushes, but this VM reaches none of its ports: a firewall or routing
+      # change.
+      - uid: infra-unreachable
+        title: Host unreachable from the VM
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "(1 = pushes arrive, but no probe answers for 5 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                ((max by (host) (max_over_time(probe_success{scope="infra"}[5m])) == bool 0) == 1) and on (host)
+                last_over_time(node_time_seconds{scope="infra"}[3m])
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Waiting for disks does not count as busy.
+      - uid: infra-cpu-high
+        title: CPU high
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "% CPU busy (limit 90)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                100 * (1 - avg by (host) (sum by (host, cpu)
+                (rate(node_cpu_seconds_total{scope="infra",mode=~"idle|iowait"}[5m]))))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [90] } }]
+
+      # The ZFS cache above its minimum counts as free, or every ZFS host would
+      # fire.
+      - uid: infra-ram-high
+        title: RAM high
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "% RAM used (limit 90)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host) (100 * (1 - ((node_memory_MemAvailable_bytes{scope="infra"} +
+                clamp_min(node_zfs_arc_size{scope="infra"} - node_zfs_arc_c_min{scope="infra"}, 0)) or
+                node_memory_MemAvailable_bytes{scope="infra"}) / node_memory_MemTotal_bytes{scope="infra"}))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [90] } }]
+
+      # Filesystems and Proxmox storages (LVM-thin pools are not filesystems).
+      - uid: infra-disk-high
+        title: Disk almost full
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "% used (limit 85)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, mountpoint) (100 * (1 - node_filesystem_avail_bytes{scope="infra"} /
+                node_filesystem_size_bytes{scope="infra"}) unless node_filesystem_readonly{scope="infra"} == 1) or max by
+                (host, storage) (100 * infra_pve_storage_used_bytes{scope="infra"} /
+                infra_pve_storage_size_bytes{scope="infra"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [85] } }]
+
+      # A full thin pool stops every guest on it.
+      - uid: infra-disk-critical
+        title: Disk full
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "% used (limit 95)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, mountpoint) (100 * (1 - node_filesystem_avail_bytes{scope="infra"} /
+                node_filesystem_size_bytes{scope="infra"}) unless node_filesystem_readonly{scope="infra"} == 1) or max by
+                (host, storage) (100 * infra_pve_storage_used_bytes{scope="infra"} /
+                infra_pve_storage_size_bytes{scope="infra"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [95] } }]
+
+      # Full within 24 hours at the rate of the last 6 hours, more than 60 %
+      # used, and still growing in the last hour (a one-time copy is not a
+      # trend). Not before there are 6 hours of data.
+      - uid: infra-disk-filling
+        title: Disk filling up
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "% free in 24 h at the rate of the last 6 h"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (predict_linear(node_filesystem_avail_bytes{scope="infra"}[6h], 86400) /
+                node_filesystem_size_bytes{scope="infra"} * 100 < 0 and (100 * (1 - node_filesystem_avail_bytes{scope="infra"}
+                / node_filesystem_size_bytes{scope="infra"}) unless node_filesystem_readonly{scope="infra"} == 1) > 60 and
+                deriv(node_filesystem_avail_bytes{scope="infra"}[1h]) < 0 and node_filesystem_avail_bytes{scope="infra"}
+                offset 6h) or (100 - 100 * predict_linear(infra_pve_storage_used_bytes{scope="infra"}[6h], 86400) /
+                infra_pve_storage_size_bytes{scope="infra"} < 0 and 100 * infra_pve_storage_used_bytes{scope="infra"} /
+                infra_pve_storage_size_bytes{scope="infra"} > 60 and deriv(infra_pve_storage_used_bytes{scope="infra"}[1h]) >
+                0 and infra_pve_storage_used_bytes{scope="infra"} offset 6h)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [0] } }]
+
+      # The value is the distance to the limit of that part.
+      - uid: infra-temperature-high
+        title: Temperature high
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "degrees C above the limit (CPU and GPU 85, NVMe 70, other disks 60)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (max by (host, chip) (node_hwmon_temp_celsius{scope="infra"} * on (host, chip) group_left () max by (host,
+                chip) (node_hwmon_chip_names{scope="infra",chip_name=~"coretemp|k10temp|zenpower|cpu_thermal"})) - 85) or (max
+                by (host, device) (infra_smart_temperature_celsius{scope="infra",device!~"nvme.*"}) - 60) or (max by (host,
+                device) (infra_smart_temperature_celsius{scope="infra",device=~"nvme.*"}) - 70) or (max by (host, gpu)
+                (infra_gpu_temperature_celsius{scope="infra"}) - 85)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # The disk says it is failing: replace it.
+      - uid: infra-smart-failing
+        title: SMART failing
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "(0 = the disk's own health check fails)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                min by (host, device) (infra_smart_healthy{scope="infra"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      # Signs of a dying disk before its own health check fails.
+      - uid: infra-smart-prefail
+        title: SMART pre-fail
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "(NVMe warning, pending, uncorrectable or new reallocated sectors, or wear in %)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, device) (infra_smart_critical_warning{scope="infra"} > 0 or
+                infra_smart_pending_sectors{scope="infra"} > 0 or infra_smart_offline_uncorrectable_sectors{scope="infra"} > 0
+                or infra_smart_reallocated_sectors{scope="infra"} - infra_smart_reallocated_sectors{scope="infra"} offset 24h
+                > 0 or infra_smart_wear_percent{scope="infra"} >= 90)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Any state but online.
+      - uid: infra-zfs-degraded
+        title: ZFS pool degraded
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "(1 = the pool is not online)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, zpool) (node_zfs_zpool_state{scope="infra",state!="online"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # Fresh scrapes of old content: a collector's timer stopped or its tool
+      # fails. During an outage of the whole host the difference stays small, so
+      # only "Host down" fires then.
+      - uid: infra-collector-stale
+        title: Collector stale
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra }
+        annotations:
+          value_meaning: "s over the limit (SMART 25 min, Proxmox and GPU 3 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (max by (host, collector) (timestamp(infra_collector_timestamp_seconds{scope="infra",collector="smart"}) -
+                infra_collector_timestamp_seconds{scope="infra",collector="smart"}) - 1500) or (max by (host, collector)
+                (timestamp(infra_collector_timestamp_seconds{scope="infra",collector=~"pve|gpu"}) -
+                infra_collector_timestamp_seconds{scope="infra",collector=~"pve|gpu"}) - 180)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # The blackbox exporter or its targets are gone (scripts/enroll.sh verify
+      # <host> writes them). "Host down" cannot fire meanwhile.
+      - uid: infra-probes-blind
+        title: Probes blind
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra, source: platform }
+        annotations:
+          value_meaning: "hosts send metrics, but no probe result arrives"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                count(last_over_time(infra_host_info{scope="infra"}[1h])) unless on ()
+                count(last_over_time(probe_success{scope="infra"}[5m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # The watchdog stopped: nothing would report this VM's own death.
+      - uid: infra-watchdog-stale
+        title: Watchdog stale
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: infra, source: platform }
+        annotations:
+          value_meaning: "s since the watchdog last ran (limit 300)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                max by (host, collector) (timestamp(infra_collector_timestamp_seconds{scope="infra",collector="watchdog"}) -
+                infra_collector_timestamp_seconds{scope="infra",collector="watchdog"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [300] } }]

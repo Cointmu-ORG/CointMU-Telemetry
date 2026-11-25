@@ -1,6 +1,7 @@
 # Every rule carries a static label scope (scopes/<name>/alerting/rules.yml),
 # which picks the Discord channel: cointmu to #node-logs, its chain rules
-# (source=chain) to #block-update, ups to #ups. A rule without a known scope
+# (source=chain) to #block-update, ups to #ups, infra to #servers and its rules
+# about the platform itself (source=platform) to #infra. A rule without a known scope
 # goes to #infra, so a forgotten label shows up there and not in a channel of
 # another scope. One message per rule and host (and UPS or role). A firing
 # alert is repeated at most every 12 hours; resolving it sends one message.
@@ -21,6 +22,11 @@ policies:
           - receiver: discord-chain
             object_matchers: [[source, "=", chain]]
             group_by: [alertname, host, role]
+      - receiver: discord-servers
+        object_matchers: [[scope, "=", infra]]
+        routes:
+          - receiver: discord-infra
+            object_matchers: [[source, "=", platform]]
       - receiver: discord-ups
         object_matchers: [[scope, "=", ups]]
         group_by: [alertname, host, ups]
