@@ -145,14 +145,18 @@ check_installed() {
 
 # Same bundle again (from before verify): nothing to do, no restart.
 check_idempotent() {
-  local host="$1" before
+  local host="$1" before output
   enroll reissue "$host" >/dev/null 2>&1
   put_bundle "$host"
   on "$host" bash /root/install-agent.sh /root/b.tar >/dev/null 2>&1 || fail "$host: reissued bundle"
   put_bundle "$host"
   before=$(on "$host" systemctl show -p MainPID alloy)
-  if on "$host" bash /root/install-agent.sh /root/b.tar 2>&1 | grep -q 'config unchanged' \
-    && [[ "$(on "$host" systemctl show -p MainPID alloy)" == "$before" ]]; then pass "$host: second run changes nothing"; else fail "$host: second run"; fi
+  output=$(on "$host" bash /root/install-agent.sh /root/b.tar 2>&1) || true
+  if [[ "$output" == *"config unchanged"* && "$(on "$host" systemctl show -p MainPID alloy)" == "$before" ]]; then
+    pass "$host: second run changes nothing"
+  else
+    fail "$host: second run: $output"
+  fi
   enroll revoke-old "$host" >/dev/null 2>&1
   wait_for "$host: data with the reissued login" feed_and_verify "$host"
 }
