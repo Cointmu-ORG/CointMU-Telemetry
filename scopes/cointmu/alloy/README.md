@@ -16,9 +16,8 @@ geth (PM2 log file or journal) ──▶ Alloy ──HTTPS + login──▶ ngin
 | the password from `scripts/agent-cred.sh add` | `/etc/alloy/push-password` (0640 root:alloy) |
 
 `cointmu.alloy` also pushes the node's **chain metrics** to Prometheus, with a second login
-(`/etc/alloy/metrics-password`, `METRICS_PUSH_*`). Set those up first and run
-`scopes/cointmu/chain/alloy-preflight.sh` before installing this config (scopes/cointmu/chain/README.md). Without
-them Alloy still ships the logs, but every metrics batch fails with a warning.
+(`/etc/alloy/metrics-password`, `METRICS_PUSH_*`). Without it Alloy still ships the logs, but every
+metrics batch fails with a warning; `install-agent.sh` refuses to install without both.
 
 ## What it sends
 
@@ -34,47 +33,19 @@ them Alloy still ships the logs, but every metrics batch fails with a warning.
 - **Timestamps** are the time Alloy read the line, not geth's clock (geth's format has no year or
   zone). `tail_from_end` makes a first start skip what was logged before it.
 
-## Install (Ubuntu/Debian, systemd)
+## Install
 
-On the **telemetry VM**:
+`scripts/enroll.sh add <host> <ip> --scopes cointmu ...` on the telemetry VM (RUNBOOK.md, "Enroll a host")
+makes the logins and a bundle; `install-agent.sh` from that bundle installs the pinned Alloy, the
+config and the chain collector (`scopes/cointmu/agent.manifest`). The settings of this scope:
 
-```bash
-scripts/agent-cred.sh add bootnode-a-1         # prints the password once
-# allow the node's address (campus or tailnet IP) in nginx/local/agent-allow.conf:
-echo '<NODE_IP> 1;' >> nginx/local/agent-allow.conf && docker compose exec proxy nginx -s reload
-```
+| `--set` | |
+|---|---|
+| `GETH_LOG_FILES` | one path or glob, live files only, readable by user `alloy` (for PM2 logs in a home directory: `setfacl -m u:alloy:x /home/<USER>`) |
+| `GETH_JOURNAL_UNIT` | one systemd unit instead of, or besides, log files |
+| `NODES` | the chain collector's nodes ([../chain/README.md](../chain/README.md)) |
 
-On the **node**:
-
-```bash
-# 1. Alloy from Grafana's apt repository, pinned (upgrades are manual, RUNBOOK.md)
-sudo install -d -m 755 /etc/apt/keyrings
-wget -qO- https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
-  | sudo tee /etc/apt/sources.list.d/grafana.list
-sudo apt-get update && sudo apt-get install -y alloy=1.21.0-1
-sudo apt-mark hold alloy
-
-# 2. Config, certificate and password (copy the repo's scopes/cointmu/alloy/ and the VM's certs/server.crt over first)
-sudo install -d -m 755 /etc/alloy/conf.d
-sudo install -m 644 cointmu.alloy push-logs.alloy push-metrics.alloy /etc/alloy/conf.d/
-sudo install -m 644 server.crt /etc/alloy/telemetry.crt
-read -rsp 'push password: ' PW; echo
-printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/push-password; unset PW
-sudo install -m 644 alloy.env.example /etc/default/alloy   # replaces the package's defaults
-sudoedit /etc/default/alloy     # AGENT_HOST, LOKI_PUSH_URL, LOKI_PUSH_USER, GETH_LOG_FILES / GETH_JOURNAL_UNIT
-
-# 3. Read access. The package already puts the alloy user in systemd-journal (and adm);
-#    log files need to be readable by others or by a group alloy is in:
-sudo -u alloy head -1 /home/<USER>/.pm2/logs/cointmu-bootnode-error.log   # must print a line
-
-# 4. Start and check
-sudo systemctl enable --now alloy
-journalctl -u alloy -n 50 --no-pager      # no "error sending batch"
-curl -s 127.0.0.1:12345/metrics | grep -E '^loki_write_(sent|dropped)_entries_total'
-```
-
-Then open Grafana (`https://<VM>/grafana/`, dashboard "Geth node logs") and pick the new host.
+A geth node that was set up by hand: `adopt` keeps its settings, logins and read positions.
 
 **Choosing sources.** A geth run by PM2 (as on the bootnode server) writes its log, including
 `Fatal:` lines, to stderr, which PM2 stores in `~/.pm2/logs/<name>-error.log`: use `GETH_LOG_FILES`.

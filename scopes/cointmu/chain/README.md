@@ -57,10 +57,6 @@ Copy this folder and `scopes/cointmu/alloy/` to the node. Alloy is already insta
 logs (scopes/cointmu/alloy/README.md), so the `alloy` group exists. Commands with `sudo` go in your own
 terminal; on CT 106 that is the `server106` admin login, not `cointmu`.
 
-**Order matters.** The new fragments go in last and only after `alloy-preflight.sh` passes.
-Alloy 1.21 keeps running without the metrics password or `METRICS_PUSH_*`, so the logs keep flowing,
-but then every metrics batch fails with only a warning in its journal.
-
 ### 1. server101 only: HTTP RPC for the miner
 
 One soft restart of the 101 miner; the CT 106 miner keeps the chain going meanwhile. As the user
@@ -74,33 +70,15 @@ pm2 logs cointmu-miner --lines 40 --nostream   # "Blockchain stopped", then the 
 curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' http://127.0.0.1:8546
 ```
 
-### 2. On the telemetry VM
+### 2. Enroll the host
+
+`scripts/enroll.sh add ... --scopes cointmu --set NODES=...` on the telemetry VM (RUNBOOK.md, "Enroll a
+host"). `install-agent.sh` installs the collector, its user, unit and timer, writes
+`/etc/cointmu-chain/cointmu-chain.conf` if it does not exist yet, and starts them. Check:
 
 ```bash
-scripts/agent-cred.sh add server101-1 metrics     # prints its password once
-scripts/agent-cred.sh add server106-1 metrics
-```
-
-The nodes' addresses are already in `nginx/local/agent-allow.conf` (log push).
-
-### 3. Metrics collector
-
-```bash
-sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cointmu-chain
-sudo install -d -m 755 /usr/local/lib/cointmu-chain /etc/cointmu-chain
-sudo install -m 755 chain-metrics.py /usr/local/lib/cointmu-chain/
-sudo install -m 644 cointmu-chain.conf.example /etc/cointmu-chain/cointmu-chain.conf
-sudoedit /etc/cointmu-chain/cointmu-chain.conf      # NODES for this host (table above)
-sudo install -m 644 cointmu-chain.tmpfiles.conf /etc/tmpfiles.d/cointmu-chain.conf
-sudo systemd-tmpfiles --create /etc/tmpfiles.d/cointmu-chain.conf
-sudo install -m 644 cointmu-chain-metrics.service cointmu-chain-metrics.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl start cointmu-chain-metrics.service
-systemctl status cointmu-chain-metrics.service --no-pager   # exited 0/SUCCESS (see "CT 106" below if not)
-sudo systemctl enable --now cointmu-chain-metrics.timer
+systemctl status cointmu-chain-metrics.service --no-pager   # exited 0/SUCCESS
 sudo -u alloy cat /var/lib/cointmu-chain/chain.prom   # rpc_up 1 and a head block for every role
-stat -c '%U:%G %a %n' /var/lib/cointmu-chain /var/lib/cointmu-chain/chain.prom
-#   cointmu-chain:alloy 2750 /var/lib/cointmu-chain
-#   cointmu-chain:alloy 640  /var/lib/cointmu-chain/chain.prom
 systemd-analyze security cointmu-chain-metrics.service   # review; expect a low exposure score
 ```
 
@@ -108,22 +86,6 @@ systemd-analyze security cointmu-chain-metrics.service   # review; expect a low 
 `Permission denied` error from systemd (not from the script), drop only the option it names, in a
 drop-in (`sudo systemctl edit cointmu-chain-metrics.service`, e.g. `PrivateDevices=no`), and write
 down which one in RUNBOOK.md. The repository unit stays as it is.
-
-### 4. Alloy
-
-```bash
-read -rsp 'metrics push password: ' PW; echo
-printf '%s' "$PW" | sudo install -m 640 -o root -g alloy /dev/stdin /etc/alloy/metrics-password; unset PW
-sudoedit /etc/default/alloy    # add METRICS_PUSH_URL and METRICS_PUSH_USER (../alloy/alloy.env.example)
-sudo ./alloy-preflight.sh && sudo install -d -m 755 /etc/alloy/conf.d \
-  && sudo install -m 644 ../alloy/cointmu.alloy push-logs.alloy push-metrics.alloy /etc/alloy/conf.d/ && sudo systemctl restart alloy
-journalctl -u alloy -n 50 --no-pager   # no "Failed to send batch", no 401/403
-curl -s 127.0.0.1:12345/metrics | grep -E '^(loki_write_sent_entries_total|prometheus_remote_storage_samples_total)'
-```
-
-`alloy-preflight.sh` prints every missing piece with "STOP" and exits 1; the `&&` chain then leaves
-the running config untouched. Then open Grafana, dashboard "Chain": every node at the same height,
-last-block age under a minute.
 
 ## Changing it
 

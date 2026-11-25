@@ -469,8 +469,10 @@ on start. For a Prometheus **major** upgrade (3 → 4), read its migration guide
 
 ## Upgrade Alloy on a node
 
-Alloy is held at a pinned version because the WAL is experimental. On a workstation first, set
-`ALLOY_IMAGE` in `scopes/cointmu/alloy/check-redaction.sh` to the new version and run it. Then on each node:
+Alloy is held at a pinned version because the WAL is experimental. First a PR with the new
+`ALLOY_IMAGE` (`scopes/cointmu/alloy/check-redaction.sh`) and `agent/alloy.pin` (version and the two
+checksums from the signed package list, which `enroll.sh fetch-alloy` checks). CI tests both. New hosts get
+the new version from their bundle; on a host that has Alloy already:
 
 ```bash
 # <version> from apt-cache madison alloy, e.g. 1.22.0-1; confold keeps our /etc/default/alloy
