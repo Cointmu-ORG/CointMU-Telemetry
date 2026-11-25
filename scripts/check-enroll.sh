@@ -74,11 +74,13 @@ expect_push() {
   if [[ "$status" == "$expected" ]]; then pass "$what: $status"; else fail "$what: $status, expected $expected"; fi
 }
 
+push_gives() { local expected="$1"; shift; [[ "$(push "$@")" == "$expected" ]]; }
+
 # $1 member of the bundle file.
 from_bundle() { tar -xOf "$repo/state/bundles/$HOST.tar" "./$1"; }
 
 check_refusals() {
-  local before after
+  local before after output
   before=$(state_of_access)
   refuse "unknown scope" "no scope 'nope'" add h 10.0.1.5 --scopes nope --ssh me@h
   # shellcheck disable=SC2016 # literal on purpose
@@ -100,7 +102,8 @@ check_refusals() {
   after=$(state_of_access)
   if [[ "$before" == "$after" ]]; then pass "refused and failed adds leave nothing behind"; else fail "left behind: $(diff <(echo "$before") <(echo "$after"))"; fi
   if sudo -n true 2>/dev/null; then
-    if sudo -n bash -c "cd '$repo' && scripts/enroll.sh list" 2>&1 | grep "not root" >/dev/null; then pass "root refused"; else fail "root not refused"; fi
+    output=$(sudo -n bash -c "cd '$repo' && scripts/enroll.sh list" 2>&1) || true
+    if [[ "$output" == *"not root"* ]]; then pass "root refused"; else fail "root not refused: $output"; fi
   fi
 }
 
@@ -164,7 +167,8 @@ check_reissue() {
   check "bundle expired after 24 h" test ! -e "$repo/state/bundles/$HOST.tar"
   check "list shows the expired bundle" grep -F "pending, bundle expired" <(enroll list)
   enroll remove "$HOST" >/dev/null 2>&1
-  expect_push "after remove" "$FORBIDDEN" "$PROJECT-agent" "$HOST-2" "$password" /loki/api/v1/push
+  # A reload is asynchronous: old nginx workers may take one more request.
+  wait_for "403 after remove" push_gives "$FORBIDDEN" "$PROJECT-agent" "$HOST-2" "$password" /loki/api/v1/push
   if [[ "$(cat "$repo/nginx/local/agent-allow.conf")" == "$HAND_WRITTEN" ]]; then pass "hand-written allowlist line untouched"; else fail "allowlist: $(cat "$repo/nginx/local/agent-allow.conf")"; fi
   check "no login left" test ! -s "$repo/nginx/local/loki-agents.htpasswd"
 }
