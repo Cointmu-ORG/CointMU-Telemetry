@@ -1,0 +1,18 @@
+# #servers: Grafana's built-in Discord integration. The webhook URL comes from
+# .env through compose.yml, with the same placeholder as the other scopes
+# (scopes/cointmu/alerting/contact-points.yml says why). Literal "$" in this
+# file would be read as an environment variable.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: discord-servers
+    receivers:
+      - uid: discord-servers
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: $DISCORD_WEBHOOK_SERVERS
+          use_discord_username: false
+          use_embed_description: true
+          title: '{{ template "cointmu.title" . }}'
+          message: '{{ template "cointmu.servers_message" . }}'

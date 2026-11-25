@@ -257,10 +257,10 @@ password-reset links, invitations and MFA trust cookies. Then:
 
 1. In Discord: Edit Channel → Integrations → Webhooks → delete the old webhook, then create a new one
    and copy its URL.
-2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS`, `_INFRA`, `_UPS` or `_BLOCK_UPDATE`).
+2. Put it in `.env` (`DISCORD_WEBHOOK_APP_ERRORS`, `_NODE_LOGS`, `_INFRA`, `_UPS`, `_SERVERS` or `_BLOCK_UPDATE`).
 3. Apply it:
    - **#app-errors:** `scripts/init-project.sh <owner email>`, which updates GlitchTip's recipient.
-   - **#node-logs, #ups, #block-update (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
+   - **#node-logs, #ups, #servers, #block-update (Grafana):** `docker compose up -d grafana`, which recreates Grafana with the new URL.
    - **#infra:** `docker compose up -d grafana`; `healthcheck.sh` reads `.env` on every run.
 4. Send a test message (README.md, "Alerts").
 
@@ -346,6 +346,30 @@ when resolved). Dashboard "Chain"; node commands as the node's user in `~/cointm
 | Chain RPC down | geth on that host/role does not answer on its loopback RPC for 3 min: the process stopped, crashed or hangs. `pm2 status`, `pm2 logs <app> --lines 80 --nostream`. A soft PM2 restart takes about a minute; never `kill -9` (rewinds the chain). A restart on purpose that takes longer: silence it (below) |
 | Chain metrics stale | `chain-metrics.py` or its timer stopped, so the graphs show old values. `systemctl status cointmu-chain-metrics.timer cointmu-chain-metrics.service` and `journalctl -u cointmu-chain-metrics -n 20` on the node (it names a wrong directory group, mode or NODES entry) |
 | Chain metrics missing | That node sent nothing for 5 min (but did in the last 24 h): the node, its Alloy, or the network is down, or the push is refused. "Logs are not arriving" applies to the metrics push as well (`journalctl -u alloy`: 401/403, or "unable to read … metrics-password"). A node retired on purpose: silence it for 25 h (below) |
+
+**#servers from Grafana** (scope infra; repeats at most every 12 h; one message when resolved). If a host
+goes down while another alert of it fires, that alert posts "resolved": its data is gone, the problem may not be.
+
+| Rule | Meaning, first steps |
+|---|---|
+| Host down | Ping, SSH and 8006 all fail and no metrics arrive, for 3 min. Power, network or kernel: check the console. On purpose: silence `host = <name>` with `scope = infra` first |
+| Many hosts down | More than half of the probed hosts at once (at least 4): a switch, the room's power, or this VM's own uplink. One message instead of one per host |
+| Agent silent | The host answers but sends nothing for 10 min: `systemctl status alloy` and `journalctl -u alloy -n 50` there (401/403: login or allowlist). Also a dead host while the probes are blind |
+| Host unreachable from the VM | It pushes, but no probe reaches it: firewall (pve-firewall) or routing |
+| CPU high, RAM high | More than 90 % for 15 or 10 min. The dashboard shows since when; on a Proxmox host look for the guest |
+| Disk almost full, Disk full | 85 % for 15 min, 95 % for 5 min, filesystems and Proxmox storages. A full thin pool stops its guests: free space before anything else |
+| Disk filling up | Full within 24 h at the rate of the last 6 h |
+| Temperature high | CPU or GPU above 85 °C, NVMe above 70 °C, other disks above 60 °C for 10 min; the value is the distance to the limit. Fans, dust, room cooling |
+| SMART failing | The disk reports its own failure: replace it now |
+| SMART pre-fail | Pending, uncorrectable or newly reallocated sectors, an NVMe warning, or 90 % wear: order a disk, check the backups |
+| ZFS pool degraded | `zpool status -x` on the host |
+| Collector stale | `systemctl status 'cointmu-infra-*'` on the host; usually a tool that fails or hangs |
+
+**#infra from Grafana:** "Probes blind" (hosts push, but no probe result arrives: `docker compose ps blackbox`,
+then `scripts/enroll.sh verify <host>`), "Watchdog stale" (`systemctl status cointmu-watchdog.timer` on the
+watchdog host), and any rule without a known scope.
+
+**#servers and #infra from the watchdog:** scopes/watchdog/README.md.
 
 ### After the battery ran out (or a shutdown by hand)
 
@@ -694,6 +718,8 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
    ```
 2. Hosts with a firewall (pve-firewall) must let the VM ping them and reach their SSH port and 8006.
 3. The watchdog on another host: [scopes/watchdog/README.md](scopes/watchdog/README.md).
+4. Alerts: create a webhook in #servers, put it in `.env` as `DISCORD_WEBHOOK_SERVERS` (empty = off), then
+   `docker compose up -d --no-deps --force-recreate grafana` and README.md "Alerts", test 1.
 
 ## Node logs (Loki + Grafana)
 
