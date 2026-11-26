@@ -706,7 +706,7 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
    docker compose up -d --no-deps --force-recreate proxy
    docker compose ps                # both healthy
    ```
-4. Enroll one host with scope `infra` first (proxmox23: `enroll.sh change`), leave it for a day, then compare:
+4. Enroll one host with scope `infra` first (proxnet23: `enroll.sh change`), leave it for a day, then compare:
    `docker stats --no-stream`, and in Grafana `count by (host) ({scope="infra"})`.
 
 ## Moving to external probes (deployments from before them)
