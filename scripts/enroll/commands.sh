@@ -19,17 +19,17 @@ print_commands() {
   case "$h_type" in
     pve)
       print_transfer "$h_ssh" "/root/$bundle" "$sha"
-      echo "ssh -t $h_ssh 'd=\$(mktemp -d) && tar -xf /root/$bundle -C \$d ./install-agent.sh && bash \$d/install-agent.sh /root/$bundle'"
+      echo "ssh -t $h_ssh 'd=\$(mktemp -d) && trap \"rm -rf \$d\" EXIT && tar -xf /root/$bundle -C \$d ./install-agent.sh && bash \$d/install-agent.sh /root/$bundle'"
       ;;
     linux)
       print_transfer "$h_ssh" "\$HOME/$bundle" "$sha"
-      echo "ssh -t $h_ssh 'sudo bash -c \"d=\\\$(mktemp -d) && tar -xf \$HOME/$bundle -C \\\$d ./install-agent.sh && bash \\\$d/install-agent.sh \$HOME/$bundle\"'"
+      echo "ssh -t $h_ssh 'sudo bash -c \"d=\\\$(mktemp -d) && trap \\\"rm -rf \\\$d\\\" EXIT && tar -xf \$HOME/$bundle -C \\\$d ./install-agent.sh && bash \\\$d/install-agent.sh \$HOME/$bundle\"'"
       ;;
     lxc)
       pve="${h_via%:*}"
       ctid="${h_via##*:}"
       print_transfer "$pve" "/root/$bundle" "$sha"
-      echo "ssh -t $pve 'trap \"shred -u /root/$bundle\" EXIT; pct push $ctid /root/$bundle /root/$bundle --perms 0600 --user 0 --group 0 && pct exec $ctid -- bash -c \"d=\\\$(mktemp -d) && tar -xf /root/$bundle -C \\\$d ./install-agent.sh && bash \\\$d/install-agent.sh /root/$bundle\"'"
+      echo "ssh -t $pve 'trap \"shred -u /root/$bundle\" EXIT; pct push $ctid /root/$bundle /root/$bundle --perms 0600 --user 0 --group 0 && pct exec $ctid -- bash -c \"d=\\\$(mktemp -d) && trap \\\"rm -rf \\\$d\\\" EXIT && tar -xf /root/$bundle -C \\\$d ./install-agent.sh && bash \\\$d/install-agent.sh /root/$bundle\"'"
       ;;
   esac
   echo "ssh $VM_SSH 'cd $PWD && scripts/enroll.sh verify $h_host'"

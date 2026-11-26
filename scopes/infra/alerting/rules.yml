@@ -17,7 +17,7 @@ groups:
       # Ping, SSH and 8006 all fail and no metrics arrive, for 3 minutes. Based
       # on the probes, which go on while the host is enrolled, so it fires until
       # the host is back or removed. If most hosts are down at once, only "Many
-      # hosts down" fires. proxmox23 carries this VM: the watchdog on another
+      # hosts down" fires. proxnet23 carries this VM: the watchdog on another
       # machine reports it.
       - uid: infra-host-down
         title: Host down
