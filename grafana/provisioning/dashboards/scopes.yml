@@ -27,3 +27,10 @@ providers:
     disableDeletion: true
     options:
       path: /var/lib/grafana-dashboards/ups
+  - name: network
+    folder: Network
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana-dashboards/network

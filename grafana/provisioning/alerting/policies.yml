@@ -27,6 +27,9 @@ policies:
         routes:
           - receiver: discord-infra
             object_matchers: [[source, "=", platform]]
+      # Switches (scopes/network/) go to #servers with the hosts they connect.
+      - receiver: discord-servers
+        object_matchers: [[scope, "=", network]]
       - receiver: discord-ups
         object_matchers: [[scope, "=", ups]]
         group_by: [alertname, host, ups]

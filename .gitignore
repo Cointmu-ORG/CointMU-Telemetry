@@ -8,6 +8,7 @@ state/
 # config backup instead.
 inventory/
 prometheus/probes/*.json
+prometheus/probes/snmp/
 *.key
 *.sql.gz
 # Per-host nginx files (allowlists, agent logins); only the examples are tracked.

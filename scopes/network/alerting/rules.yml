@@ -1,0 +1,147 @@
+# Alert rules of scope network (switches), sent to #servers (policies.yml). Each
+# rule is A (Prometheus, instant) -> B (last value per series) -> C (threshold
+# on B); the message shows B. Tested on synthetic series by
+# scopes/network/check-network.sh. Literal "$" in this file would be read as an
+# environment variable.
+#
+# No data is OK everywhere: a switch that is not enrolled has no series, and one
+# that stops answering is "Switch down" or "Switch SNMP unreadable". On a query
+# error a rule keeps its last state; healthcheck.sh reports Prometheus itself.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: network
+    folder: Network
+    interval: 1m
+    rules:
+      # Neither ping nor the SSH port answer for 3 minutes.
+      - uid: network-switch-down
+        title: Switch down
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: network }
+        annotations:
+          value_meaning: "(1 = no probe answers for 3 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: max by (host) (max_over_time(probe_success{scope="network"}[3m])) == bool 0
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # The switch answers ping or SSH, but no SNMP scrape succeeded for 10
+      # minutes: SNMP switched off, a changed login, or .env without one.
+      - uid: network-snmp-unreadable
+        title: Switch SNMP unreadable
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: network }
+        annotations:
+          value_meaning: "(1 = reachable, but no SNMP answer for 10 min)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                (max by (host) (max_over_time(up{job="network-snmp"}[10m])) == bool 0) and on (host)
+                (max by (host) (max_over_time(probe_success{scope="network"}[3m])) == 1)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # An enabled port is down that was up without a break from 48 to 24 hours
+      # ago: a server, uplink or other steady link. Ports that come and go (desks,
+      # laptops) never qualify, and a port switched off on purpose (admin down)
+      # is left alone. Resolves when the port is back, or after a day of being
+      # down, once down is its normal state. A new port qualifies after 2 days.
+      - uid: network-port-down
+        title: Switch port down
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: network }
+        annotations:
+          value_meaning: "(1 = a port that was up all day is down)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 172800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                count by (host, ifName) ((ifOperStatus{scope="network"} != 1) and on (host, ifIndex)
+                (ifAdminStatus{scope="network"} == 1) and on (host, ifIndex)
+                (max_over_time(ifOperStatus{scope="network"}[1d] offset 1d) == 1))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      # In and out errors of a port, per second over 15 minutes: a bad cable,
+      # a duplex mismatch or a failing transceiver.
+      - uid: network-port-errors
+        title: Switch port errors
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: KeepLast
+        labels: { scope: network }
+        annotations:
+          value_meaning: "errors per second (in + out, 15 min average)"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                sum by (host, ifName) (rate(ifInErrors{scope="network"}[15m]) + rate(ifOutErrors{scope="network"}[15m]))
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [1] } }]
