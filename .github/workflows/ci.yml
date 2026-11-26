@@ -87,7 +87,7 @@ jobs:
           -x scripts/[!e]*.sh nginx/require-local.sh firewall/check-docker-user.sh grafana/check-upgrade.sh
           agent/*.sh testing/*.sh
           scopes/cointmu/alloy/check-redaction.sh
-          scopes/infra/*.sh scopes/watchdog/*.sh scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
+          scopes/infra/*.sh scopes/network/*.sh scopes/watchdog/*.sh scopes/ups/*.sh scopes/ups/testdata/*.sh scopes/cointmu/chain/*.sh scopes/cointmu/chain/testdata/*.sh
 
       # enroll.sh together with the files it sources.
       - run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" -x -a scripts/enroll.sh
@@ -288,6 +288,16 @@ jobs:
       - run: scopes/infra/check-infra.sh
 
       - run: python3 scopes/watchdog/testdata/test_watchdog.py
+
+  # Scope network: network.sh, the dashboard's queries and the alert rules on
+  # synthetic series, the snmp exporter's config.
+  network:
+    name: network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: scopes/network/check-network.sh
 
   # enroll.sh and install-agent.sh end to end: throwaway hosts with systemd, on a
   # network without internet.

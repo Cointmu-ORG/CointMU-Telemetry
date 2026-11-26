@@ -160,6 +160,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # SNMP of the switches (scopes/network/), scraped by Prometheus like the
+  # blackbox exporter; targets come from scripts/network.sh.
+  snmp:
+    <<: [*hardening, *logging]
+    image: prom/snmp-exporter:v0.30.1@sha256:e5fd5e8b43ace6c088fe9bf0b37b7fff0e04380bee352be7ec41b853a4dd5859
+    command:
+      - --config.file=/etc/snmp_exporter/snmp.yml
+      - --config.file=/etc/snmp/auths.yml
+      - --config.expand-environment-variables
+    user: "65534:65534"
+    environment:
+      # SNMPv3 logins (scopes/network/README.md). An empty value stops the
+      # exporter, so a placeholder stands in until .env has one: that switch's
+      # scrape then fails ("Switch SNMP unreadable"), nothing else.
+      SNMP_MIKROTIK_USER: ${SNMP_MIKROTIK_USER:-not-configured}
+      SNMP_MIKROTIK_AUTH_PASSWORD: ${SNMP_MIKROTIK_AUTH_PASSWORD:-not-configured}
+      SNMP_MIKROTIK_PRIV_PASSWORD: ${SNMP_MIKROTIK_PRIV_PASSWORD:-not-configured}
+      SNMP_CISCO_USER: ${SNMP_CISCO_USER:-not-configured}
+      SNMP_CISCO_AUTH_PASSWORD: ${SNMP_CISCO_AUTH_PASSWORD:-not-configured}
+      SNMP_CISCO_PRIV_PASSWORD: ${SNMP_CISCO_PRIV_PASSWORD:-not-configured}
+    volumes:
+      - { type: bind, source: ./scopes/network/snmp/auths.yml, target: /etc/snmp/auths.yml, read_only: true, bind: { create_host_path: false } }
+    read_only: true
+    networks: [logs, probe-egress]
+    mem_limit: 64m
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9116/metrics"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # Served by the proxy at /grafana/ to the admin allowlist only.
   grafana:
     <<: [*hardening, *logging]
@@ -220,6 +252,8 @@ services:
       - { type: bind, source: ./scopes/infra/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/infra-rules.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/infra/alerting/contact-points.yml, target: /etc/grafana/provisioning/alerting/infra-contact-points.yml, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: ./scopes/infra/dashboards, target: /var/lib/grafana-dashboards/infra, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/network/alerting/rules.yml, target: /etc/grafana/provisioning/alerting/network-rules.yml, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: ./scopes/network/dashboards, target: /var/lib/grafana-dashboards/network, read_only: true, bind: { create_host_path: false } }
       - grafana-data:/var/lib/grafana
     read_only: true
     tmpfs: [/tmp]

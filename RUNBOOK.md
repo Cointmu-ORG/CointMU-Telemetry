@@ -19,6 +19,7 @@ restart` would miss the second.
 | `grafana/provisioning/`, `scopes/*/alerting/` | `grafana` |
 | `scopes/*/dashboards/` | nothing: Grafana reads changed JSON within seconds. A new or moved folder needs `grafana` |
 | `prometheus/prometheus.yml` | `prometheus` |
+| `scopes/network/snmp/auths.yml` | `snmp` |
 | `loki/config.yml` | `loki` |
 | `nginx/default.conf` | `docker compose restart proxy`. Recreating the proxy discards its log, which is the admin audit trail ("Admin access audit"); do that only when its section in `compose.yml` changed, and save the log first |
 | `nginx/local/` | nothing to recreate: `docker compose exec proxy nginx -s reload` (a folder mount) |
@@ -720,6 +721,16 @@ Needs the Prometheus metrics endpoint ("Moving to UPS monitoring", step 3). Node
 3. The watchdog on another host: [scopes/watchdog/README.md](scopes/watchdog/README.md).
 4. Alerts: create a webhook in #servers, put it in `.env` as `DISCORD_WEBHOOK_SERVERS` (empty = off), then
    `docker compose up -d --no-deps --force-recreate grafana` and README.md "Alerts", test 1.
+
+## Moving to switch monitoring (deployments from before scope network)
+
+1. ```bash
+   git pull --ff-only && docker compose up -d snmp
+   docker compose up -d --no-deps --force-recreate prometheus grafana
+   docker compose ps                # snmp healthy
+   ```
+2. Per switch: [scopes/network/README.md](scopes/network/README.md), "Add a switch" (SNMPv3 user on
+   the switch, login in `.env`, `docker compose up -d snmp`, check, `scripts/network.sh add`).
 
 ## Node logs (Loki + Grafana)
 

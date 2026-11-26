@@ -1,0 +1,33 @@
+# SNMPv3 logins of the switches (scopes/network/README.md), read by the snmp
+# exporter next to its built-in snmp.yml, which has the modules (if_mib,
+# system). The ${...} values come from compose.yml's environment, i.e. .env.
+# The exporter fills in variables only in username, password and
+# priv_password, so a community string (v1/v2c) cannot be kept out of git:
+# every device here uses SNMPv3, authPriv.
+# A changed file needs: docker compose up -d --no-deps --force-recreate snmp
+auths:
+  mikrotik_v3:
+    version: 3
+    security_level: authPriv
+    username: ${SNMP_MIKROTIK_USER}
+    password: ${SNMP_MIKROTIK_AUTH_PASSWORD}
+    auth_protocol: SHA
+    priv_password: ${SNMP_MIKROTIK_PRIV_PASSWORD}
+    priv_protocol: AES
+  cisco_v3:
+    version: 3
+    security_level: authPriv
+    username: ${SNMP_CISCO_USER}
+    password: ${SNMP_CISCO_AUTH_PASSWORD}
+    auth_protocol: SHA
+    priv_password: ${SNMP_CISCO_PRIV_PASSWORD}
+    priv_protocol: AES
+  # The same login for switch firmware that offers DES privacy only.
+  cisco_v3_des:
+    version: 3
+    security_level: authPriv
+    username: ${SNMP_CISCO_USER}
+    password: ${SNMP_CISCO_AUTH_PASSWORD}
+    auth_protocol: SHA
+    priv_password: ${SNMP_CISCO_PRIV_PASSWORD}
+    priv_protocol: DES

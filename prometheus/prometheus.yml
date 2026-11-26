@@ -34,3 +34,21 @@ scrape_configs:
       - source_labels: [__name__]
         regex: probe_(success|duration_seconds|ssl_earliest_cert_expiry)
         action: keep
+
+  # Switches over SNMPv3 (scopes/network/). Targets, the auth name and the
+  # modules come from scripts/network.sh; addresses stay out of the labels.
+  - job_name: network-snmp
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    metrics_path: /snmp
+    file_sd_configs:
+      - files: [/etc/prometheus/probes/snmp/*.json]
+        refresh_interval: 1m
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { target_label: __address__, replacement: "snmp:9116" }
+      - { target_label: instance, replacement: snmp }
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: sysUpTime|ifOperStatus|ifAdminStatus|ifHighSpeed|ifHC(In|Out)Octets|if(In|Out)(Errors|Discards)
+        action: keep
