@@ -133,6 +133,8 @@ def rule_tests(rules: dict) -> list[dict]:
 def panel_tests() -> list[dict]:
     panels = json.loads((SCOPE / "dashboards/network.json").read_text())["panels"]
     tests = []
+    # Collapsed rows keep their panels inside the row.
+    panels += [inner for panel in panels for inner in panel.get("panels", [])]
     for expr in (target["expr"] for panel in panels for target in panel.get("targets", [])):
         selected = expr.replace("$host", SWITCH)
         tests.append({"expr": f"count({selected}) > bool 0", "eval_time": EVAL, "exp_samples": [{"labels": "{}", "value": 1}]})

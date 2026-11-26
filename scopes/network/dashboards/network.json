@@ -54,8 +54,8 @@
   },
   "panels": [
     {
-      "id": 1,
-      "type": "table",
+      "id": 10,
+      "type": "stat",
       "title": "Switches",
       "datasource": {
         "type": "prometheus",
@@ -64,175 +64,68 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
-        "h": 6
+        "w": 12,
+        "h": 5
       },
-      "description": "One row per switch from scripts/network.sh that answered in the last 24 h. Reachable: ping or SSH. SNMP: the last scrape. Errors: in + out per second, 15 min average.",
+      "description": "ok: answers ping or SSH and SNMP. no SNMP: reachable, but the last SNMP scrape failed. down: no answer.",
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "filterable": true
-          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "red",
                 "value": null
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Reachable"
-            },
-            "properties": [
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "green",
-                      "value": 1
-                    },
-                    {
-                      "color": "red",
-                      "value": 2
-                    }
-                  ]
-                }
               },
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
+                "color": "orange",
+                "value": 1
               },
               {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "DOWN",
-                        "index": 0
-                      },
-                      "1": {
-                        "text": "ok",
-                        "index": 1
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "SNMP"
-            },
-            "properties": [
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "green",
-                      "value": 1
-                    },
-                    {
-                      "color": "red",
-                      "value": 2
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "FAIL",
-                        "index": 0
-                      },
-                      "1": {
-                        "text": "ok",
-                        "index": 1
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Uptime"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "s"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Errors"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
+                "color": "green",
                 "value": 2
               }
             ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "down",
+                  "index": 0
+                },
+                "1": {
+                  "text": "no SNMP",
+                  "index": 1
+                },
+                "2": {
+                  "text": "ok",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
           }
-        ]
+        },
+        "overrides": []
       },
       "options": {
-        "showHeader": true,
-        "sortBy": [
-          {
-            "displayName": "Switch",
-            "desc": false
-          }
-        ]
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
@@ -242,119 +135,245 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max by (host) (last_over_time(probe_success{scope=\"network\"}[24h]))",
+          "expr": "max by (host) (probe_success{scope=\"network\",host=~\"$host\"}) + on (host) max by (host) (up{job=\"network-snmp\",host=~\"$host\"}) or max by (host) (probe_success{scope=\"network\",host=~\"$host\"})",
           "instant": true,
           "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "P",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max by (host) (probe_success{scope=\"network\"})",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "S",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max by (host) (up{job=\"network-snmp\"})",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "U",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max by (host) (sysUpTime{scope=\"network\"}) / 100",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "O",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "count by (host) (ifOperStatus{scope=\"network\"} == 1)",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (host) (rate(ifInErrors{scope=\"network\"}[15m]) + rate(ifOutErrors{scope=\"network\"}[15m]))",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Value #A": true
-            },
-            "renameByName": {
-              "host": "Switch",
-              "Value #P": "Reachable",
-              "Value #S": "SNMP",
-              "Value #U": "Uptime",
-              "Value #O": "Ports up",
-              "Value #E": "Errors"
-            },
-            "indexByName": {
-              "host": 0,
-              "Value #P": 1,
-              "Value #S": 2,
-              "Value #U": 3,
-              "Value #O": 4,
-              "Value #E": 5
-            }
-          }
+          "legendFormat": "{{host}}"
         }
       ]
     },
     {
-      "id": 2,
-      "type": "table",
-      "title": "Ports",
+      "id": 11,
+      "type": "bargauge",
+      "title": "Ports with link",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Ports whose operational status is up, per switch.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "valueMode": "text",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "count by (host) (ifOperStatus{scope=\"network\",host=~\"$host\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{host}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Errors per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "description": "In + out errors on all chosen switches, 15 min average. Anything above 0 is worth a look: see Errors and discards below.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(ifInErrors{scope=\"network\",host=~\"$host\"}[15m]) + rate(ifOutErrors{scope=\"network\",host=~\"$host\"}[15m])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Average traffic per active port",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 5,
         "w": 24,
-        "h": 10
+        "h": 9
       },
-      "description": "Every port of the chosen switches. Status: up, down, or lowerLayerDown (no link). Speed in Mbit/s as the port reports it.",
+      "description": "Per switch: bits per second averaged over its ports that are up. In above the line, out below it.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisCenteredZero": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.transform",
+                "value": "negative-Y"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "width": 240
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "avg by (host) (8 * rate(ifHCInOctets{scope=\"network\",host=~\"$host\"}[5m]) and on (host, ifName) ifOperStatus{scope=\"network\",host=~\"$host\"} == 1)",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{host}} in"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "avg by (host) (8 * rate(ifHCOutOctets{scope=\"network\",host=~\"$host\"}[5m]) and on (host, ifName) ifOperStatus{scope=\"network\",host=~\"$host\"} == 1)",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{host}} out"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Active ports",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 9
+      },
+      "description": "Only ports that are up now. Bars compare traffic across these ports. The full list of every port is in the last row.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -484,6 +503,21 @@
               {
                 "id": "decimals",
                 "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
               }
             ]
           },
@@ -500,6 +534,21 @@
               {
                 "id": "decimals",
                 "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
               }
             ]
           },
@@ -516,6 +565,28 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.01
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
               }
             ]
           }
@@ -525,8 +596,8 @@
         "showHeader": true,
         "sortBy": [
           {
-            "displayName": "Port",
-            "desc": false
+            "displayName": "In",
+            "desc": true
           }
         ]
       },
@@ -638,177 +709,714 @@
               "Value #E": 8
             }
           }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "all",
+            "filters": [
+              {
+                "fieldName": "Status",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Status": true,
+              "Enabled": true
+            }
+          }
         }
       ]
     },
     {
-      "id": 3,
-      "type": "timeseries",
-      "title": "Traffic in",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "id": 20,
+      "type": "row",
+      "title": "Errors and discards",
+      "collapsed": true,
       "gridPos": {
         "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 8
+        "y": 23,
+        "w": 24,
+        "h": 1
       },
-      "description": "Bits per second into the switch, per port with traffic.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bps",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
+      "panels": [
         {
-          "refId": "A",
+          "id": 5,
+          "type": "timeseries",
+          "title": "Errors and discards",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "editorMode": "code",
-          "expr": "8 * rate(ifHCInOctets{scope=\"network\",host=~\"$host\"}[5m]) > 0",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{host}} {{ifName}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "timeseries",
-      "title": "Traffic out",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
-        "h": 8
-      },
-      "description": "Bits per second out of the switch, per port with traffic.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bps",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 8
           },
-          "editorMode": "code",
-          "expr": "8 * rate(ifHCOutOctets{scope=\"network\",host=~\"$host\"}[5m]) > 0",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{host}} {{ifName}}"
+          "description": "Per second, per port that has any.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "rate(ifInErrors{scope=\"network\",host=~\"$host\"}[5m]) + rate(ifOutErrors{scope=\"network\",host=~\"$host\"}[5m]) > 0",
+              "instant": false,
+              "range": true,
+              "legendFormat": "{{host}} {{ifName}} errors"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "rate(ifInDiscards{scope=\"network\",host=~\"$host\"}[5m]) + rate(ifOutDiscards{scope=\"network\",host=~\"$host\"}[5m]) > 0",
+              "instant": false,
+              "range": true,
+              "legendFormat": "{{host}} {{ifName}} discards"
+            }
+          ]
         }
       ]
     },
     {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Errors and discards",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "id": 21,
+      "type": "row",
+      "title": "Switch details and all ports",
+      "collapsed": true,
       "gridPos": {
         "x": 0,
         "y": 24,
         "w": 24,
-        "h": 8
+        "h": 1
       },
-      "description": "Per second, per port that has any.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
+      "panels": [
         {
-          "refId": "A",
+          "id": 1,
+          "type": "table",
+          "title": "Switches",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "editorMode": "code",
-          "expr": "rate(ifInErrors{scope=\"network\",host=~\"$host\"}[5m]) + rate(ifOutErrors{scope=\"network\",host=~\"$host\"}[5m]) > 0",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{host}} {{ifName}} errors"
+          "gridPos": {
+            "x": 0,
+            "y": 25,
+            "w": 24,
+            "h": 6
+          },
+          "description": "One row per switch from scripts/network.sh that answered in the last 24 h. Reachable: ping or SSH. SNMP: the last scrape. Errors: in + out per second, 15 min average.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Reachable"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "green",
+                          "value": 1
+                        },
+                        {
+                          "color": "red",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "DOWN",
+                            "index": 0
+                          },
+                          "1": {
+                            "text": "ok",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "SNMP"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "green",
+                          "value": 1
+                        },
+                        {
+                          "color": "red",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "FAIL",
+                            "index": 0
+                          },
+                          "1": {
+                            "text": "ok",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Uptime"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Errors"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Switch",
+                "desc": false
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host) (last_over_time(probe_success{scope=\"network\"}[24h]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "P",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host) (probe_success{scope=\"network\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "S",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host) (up{job=\"network-snmp\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "U",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host) (sysUpTime{scope=\"network\"}) / 100",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "O",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "count by (host) (ifOperStatus{scope=\"network\"} == 1)",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (host) (rate(ifInErrors{scope=\"network\"}[15m]) + rate(ifOutErrors{scope=\"network\"}[15m]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value #A": true
+                },
+                "renameByName": {
+                  "host": "Switch",
+                  "Value #P": "Reachable",
+                  "Value #S": "SNMP",
+                  "Value #U": "Uptime",
+                  "Value #O": "Ports up",
+                  "Value #E": "Errors"
+                },
+                "indexByName": {
+                  "host": 0,
+                  "Value #P": 1,
+                  "Value #S": 2,
+                  "Value #U": 3,
+                  "Value #O": 4,
+                  "Value #E": 5
+                }
+              }
+            }
+          ]
         },
         {
-          "refId": "B",
+          "id": 2,
+          "type": "table",
+          "title": "All ports",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "editorMode": "code",
-          "expr": "rate(ifInDiscards{scope=\"network\",host=~\"$host\"}[5m]) + rate(ifOutDiscards{scope=\"network\",host=~\"$host\"}[5m]) > 0",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{host}} {{ifName}} discards"
+          "gridPos": {
+            "x": 0,
+            "y": 31,
+            "w": 24,
+            "h": 10
+          },
+          "description": "Every port of the chosen switches. Status: up, down, or lowerLayerDown (no link). Speed in Mbit/s as the port reports it.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "green",
+                          "value": 1
+                        },
+                        {
+                          "color": "red",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "1": {
+                            "text": "up",
+                            "index": 0
+                          },
+                          "2": {
+                            "text": "down",
+                            "index": 1
+                          },
+                          "7": {
+                            "text": "no link",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Enabled"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "1": {
+                            "text": "yes",
+                            "index": 0
+                          },
+                          "2": {
+                            "text": "no",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Speed"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "In"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bps"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Out"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bps"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Errors"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Port",
+                "desc": false
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host, ifName, ifAlias) (ifOperStatus{scope=\"network\",host=~\"$host\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host, ifName, ifAlias) (ifAdminStatus{scope=\"network\",host=~\"$host\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "S",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max by (host, ifName, ifAlias) (ifHighSpeed{scope=\"network\",host=~\"$host\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "I",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "8 * max by (host, ifName, ifAlias) (rate(ifHCInOctets{scope=\"network\",host=~\"$host\"}[5m]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "O",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "8 * max by (host, ifName, ifAlias) (rate(ifHCOutOctets{scope=\"network\",host=~\"$host\"}[5m]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (host, ifName, ifAlias) (rate(ifInErrors{scope=\"network\",host=~\"$host\"}[15m]) + rate(ifOutErrors{scope=\"network\",host=~\"$host\"}[15m]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "host": "Switch",
+                  "ifName": "Port",
+                  "ifAlias": "Description",
+                  "Value #A": "Status",
+                  "Value #D": "Enabled",
+                  "Value #S": "Speed",
+                  "Value #I": "In",
+                  "Value #O": "Out",
+                  "Value #E": "Errors"
+                },
+                "indexByName": {
+                  "host": 0,
+                  "ifName": 1,
+                  "ifAlias": 2,
+                  "Value #A": 3,
+                  "Value #D": 4,
+                  "Value #S": 5,
+                  "Value #I": 6,
+                  "Value #O": 7,
+                  "Value #E": 8
+                }
+              }
+            }
+          ]
         }
       ]
     }
