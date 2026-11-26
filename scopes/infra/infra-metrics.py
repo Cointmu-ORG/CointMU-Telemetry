@@ -110,7 +110,7 @@ def output_of(*command: str) -> str:
 
 # --- SMART ---------------------------------------------------------------------
 
-def add_disk(metrics: Metrics, device: dict) -> None:
+def add_disk(metrics: Metrics, device: dict, seen_serials: set[str]) -> None:
     # A RAID member ("megaraid,0") needs its type, and shares the device name with
     # the others. Any other type is a guess of --scan ("scsi" for SATA disks):
     # without it smartctl looks for itself.
@@ -123,6 +123,13 @@ def add_disk(metrics: Metrics, device: dict) -> None:
     if result.returncode & SMARTCTL_OPEN_FAILED:
         metrics.add("infra_smart_standby", 1 if "standby" in result.stdout.lower() else None, device=label)
         return
+    # A MegaRAID JBOD disk is listed twice by --scan (/dev/sdX and megaraid,N):
+    # one disk, one set of series, so its alerts fire once.
+    serial = data.get("serial_number")
+    if serial in seen_serials:
+        return
+    if serial:
+        seen_serials.add(serial)
     labels = {"device": label, "model": data.get("model_name") or data.get("scsi_model_name") or "unknown"}
     passed = data.get("smart_status", {}).get("passed")
     metrics.add("infra_smart_healthy", None if passed is None else int(passed), **labels)
@@ -146,8 +153,9 @@ def collect_smart(metrics: Metrics) -> None:
     if not shutil.which("smartctl"):
         return
     # --scan, not --scan-open: opening would wake sleeping disks.
+    seen_serials: set[str] = set()
     for device in json.loads(output_of("smartctl", "--json", "--scan")).get("devices", []):
-        add_disk(metrics, device)
+        add_disk(metrics, device, seen_serials)
 
 
 # --- Proxmox -------------------------------------------------------------------

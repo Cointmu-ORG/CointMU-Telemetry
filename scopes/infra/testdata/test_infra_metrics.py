@@ -81,6 +81,15 @@ class InfraMetricsTest(unittest.TestCase):
         calls = (self.root / "calls").read_text().splitlines()
         self.assertEqual([c for c in calls if "--device" in c], [f"--json --all --nocheck=standby --device=megaraid,3 {RAID}"])
 
+    def test_smart_reports_a_disk_seen_twice_once(self) -> None:
+        # A MegaRAID JBOD disk is listed by --scan as /dev/sdX and as a RAID member.
+        scan = {"devices": [{"name": GOOD, "type": "scsi"}, {"name": RAID, "type": "megaraid,1"}]}
+        disk = json.dumps({"scsi_model_name": "SEAGATE", "serial_number": "WX121JRE", "smart_status": {"passed": True}})
+        self.stub("smartctl", f"case \"$*\" in\n*--scan*) echo '{json.dumps(scan)}';;\n*) echo '{disk}';;\nesac")
+        text = self.collect("smart")
+        self.assertIn('infra_smart_healthy{device="sda",model="SEAGATE"} 1\n', text)
+        self.assertNotIn("megaraid", text)
+
     def test_pve(self) -> None:
         self.stub("qm", "printf ' VMID NAME STATUS MEM(MB) BOOTDISK(GB) PID\\n 104 a running 4096 200.00 1\\n 9000 t stopped 1 1 0\\n'")
         self.stub("pct", "printf 'VMID Status Lock Name\\n106 running  x\\n'")
