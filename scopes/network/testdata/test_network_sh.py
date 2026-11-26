@@ -26,7 +26,7 @@ class NetworkScriptTest(unittest.TestCase):
 
     def test_add_writes_probe_and_snmp_targets(self) -> None:
         self.assertEqual(self.run_script("add", "crs125", "10.64.21.2", "--auth", "mikrotik_v3").returncode, 0)
-        self.assertEqual(self.run_script("add", "sg300", "10.64.24.2", "--auth", "cisco_v3_des", "--ssh-port", "2222").returncode, 0)
+        self.assertEqual(self.run_script("add", "sg300", "10.64.24.2", "--auth", "cisco_v3_authnopriv", "--ssh-port", "2222").returncode, 0)
         probes = self.targets("prometheus/probes/network.json")
         self.assertIn({"targets": ["10.64.24.2:2222"], "labels": {"host": "sg300", "scope": "network", "probe": "ssh",
                                                                  "__param_module": "tcp"}}, probes)
@@ -34,7 +34,7 @@ class NetworkScriptTest(unittest.TestCase):
         snmp = self.targets("prometheus/probes/snmp/targets.json")
         self.assertEqual(snmp[0], {"targets": ["10.64.21.2"], "labels": {"host": "crs125", "scope": "network",
                                    "__param_auth": "mikrotik_v3", "__param_module": "if_mib,system"}})
-        self.assertIn("cisco_v3_des", self.run_script("list").stdout)
+        self.assertIn("cisco_v3_authnopriv", self.run_script("list").stdout)
 
     def test_remove_drops_the_device_from_both_files(self) -> None:
         self.run_script("add", "crs125", "10.64.21.2", "--auth", "mikrotik_v3")

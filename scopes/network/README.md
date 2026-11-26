@@ -48,17 +48,26 @@ Remove: `scripts/network.sh remove <name>`, then the SNMP user on the switch.
 The second line matters: the default community `public` answers everyone once SNMP is on. SNMP is a
 management service of the switch, like SSH: it changes nothing in the bridge.
 
-### Cisco Small Business (SG300), auth `cisco_v3` or `cisco_v3_des`
+### Cisco Small Business (SG300), auth `cisco_v3` or `cisco_v3_authnopriv`
 
-In the web UI:
+Firmware 1.1.x (`show version`) has SNMPv3 users without privacy: `snmp-server user ... v3 auth sha
+<password>` and nothing after it. Use `cisco_v3_authnopriv` there: the login is SHA-protected, the
+read-only counters are not encrypted. Firmware that offers `priv` takes `cisco_v3` (AES) and
+`priv <SNMP_CISCO_PRIV_PASSWORD>` at the end of the user line.
 
-1. Security > TCP/UDP Services: SNMP Service on.
-2. SNMP > Views: a view `cointmu-ro` that includes `iso` (1).
-3. SNMP > Groups: group `cointmu-ro`, SNMPv3, Authentication and Privacy, Read view `cointmu-ro`, no
-   write or notify view.
-4. SNMP > Users: user `<SNMP_CISCO_USER>` in group `cointmu-ro`, authentication SHA, privacy with
-   `<SNMP_CISCO_PRIV_PASSWORD>`.
-5. Security > Mgmt Access Method: limit SNMP to 10.64.24.104.
+CLI (SSH needs `-o KexAlgorithms=+diffie-hellman-group-exchange-sha1 -o HostKeyAlgorithms=+ssh-rsa`
+on 1.1.x; the switch asks for User Name and Password after connecting):
 
-If the firmware offers DES only for privacy (older 1.x releases), add the switch with
-`--auth cisco_v3_des`; otherwise `cisco_v3` (AES).
+```
+configure
+snmp-server engineID local default
+snmp-server group cointmu-ro v3 auth read Default
+snmp-server user <SNMP_CISCO_USER> cointmu-ro v3 auth sha <SNMP_CISCO_AUTH_PASSWORD>
+snmp-server server
+end
+copy running-config startup-config
+```
+
+`engineID local default` asks twice (unique engine ID, SNMPv3 database erased): answer Y. Use
+`group ... v3 priv` instead of `auth` with `cisco_v3`. These switches have no v3 source-address filter
+in the user line; with no community defined, v1/v2c stay closed.
