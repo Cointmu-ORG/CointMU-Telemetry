@@ -62,6 +62,8 @@ def full_host(host: str, rack: str) -> list[dict]:
     disk = 'device="sda",model="X"'
     nvme = 'device="nvme0",model="Y"'
     return base_host(host, "pve", rack) + probes(host, ("icmp", "ssh", "web"), flat(1)) + [
+        series("node_network_receive_bytes_total", host, rising(0, 1000), 'device="vmbr0"'),
+        series("node_network_transmit_bytes_total", host, rising(0, 1000), 'device="vmbr0"'),
         series("node_zfs_arc_size", host, flat(16 * GIB)),
         series("node_zfs_arc_c_min", host, flat(2 * GIB)),
         series("node_zfs_zpool_state", host, flat(1), 'zpool="rpool",state="online"'),
@@ -84,6 +86,8 @@ def full_host(host: str, rack: str) -> list[dict]:
         series("infra_pve_guests", host, flat(5), 'type="qemu",state="total"'),
         series("infra_pve_guests", host, flat(1), 'type="lxc",state="running"'),
         series("infra_pve_guests", host, flat(1), 'type="lxc",state="total"'),
+        series("infra_pve_guest_running", host, flat(1), 'type="lxc",vmid="101",guest="ct-web"'),
+        series("infra_pve_guest_running", host, flat(0), 'type="qemu",vmid="102",guest="vm-old"'),
         series("infra_pve_storage_size_bytes", host, flat(100 * GIB), 'storage="local-lvm",type="lvmthin"'),
         series("infra_pve_storage_used_bytes", host, flat(40 * GIB), 'storage="local-lvm",type="lvmthin"'),
         series("infra_collector_timestamp_seconds", host, rising(0, 60), 'collector="pve"'),

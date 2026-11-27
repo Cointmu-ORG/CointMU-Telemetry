@@ -14,14 +14,14 @@ host's type:
 |---|---|---|
 | Alloy `prometheus.exporter.unix` (`infra.alloy`) | CPU, load, memory, swap, disk IO, filesystems, network, temperatures, ZFS pool state, boot time | 30 s |
 | `infra-metrics.py smart` | per disk: health, temperature, reallocated/pending/uncorrectable sectors, wear, NVMe warnings. Sleeping disks stay asleep | 10 min |
-| `infra-metrics.py pve` | running and total guests by type (counts only), used and total bytes per active storage (LVM-thin pools are not filesystems) | 60 s |
+| `infra-metrics.py pve` | running and total guests by type, running (1) or not (0) per guest with its ID and name, used and total bytes per active storage (LVM-thin pools are not filesystems) | 60 s |
 | `infra-metrics.py gpu` | NVIDIA (`nvidia-smi`) and AMD (sysfs): utilisation, memory, temperature; Intel: temperature only. A GPU passed through to a guest is invisible to the host | 30 s |
 
 A host without the hardware or the tool writes `infra_collector_timestamp_seconds` only. A tool that fails
 fails its unit (`systemctl status 'cointmu-infra-*'`), and the timestamp gets old.
 
 - **Labels:** `job="infra"`, `scope="infra"`, `host`, `instance="infra"`. `infra_host_info` carries `rack`
-  and `type` (`--rack`, `--type`). No guest names or IDs, no serial numbers, no addresses.
+  and `type` (`--rack`, `--type`). Proxmox guest IDs and names, but no serial numbers and no addresses.
 - **smartmontools** must come from the host's own distribution (Proxmox ships it); without it SMART stays
   empty and the installer warns.
 - **SMART behind a RAID controller:** members show as `<device>:megaraid,<n>` if `smartctl --scan` lists

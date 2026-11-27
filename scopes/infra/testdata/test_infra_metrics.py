@@ -92,15 +92,21 @@ class InfraMetricsTest(unittest.TestCase):
 
     def test_pve(self) -> None:
         self.stub("qm", "printf ' VMID NAME STATUS MEM(MB) BOOTDISK(GB) PID\\n 104 a running 4096 200.00 1\\n 9000 t stopped 1 1 0\\n'")
-        self.stub("pct", "printf 'VMID Status Lock Name\\n106 running  x\\n'")
+        self.stub("pct", "printf 'VMID Status Lock Name\\n106 running  x\\n107 stopped backup locked\\n108 stopped\\n'")
         self.stub("pvesm", "printf 'Name Type Status Total Used Available %%\\nlocal-lvm lvmthin active 1000000000 900000000 100000000 90.00%%\\nnas nfs inactive 0 0 0 0.00%%\\n'")
         text = self.collect("pve")
         for line in ('infra_pve_guests{type="qemu",state="running"} 1', 'infra_pve_guests{type="qemu",state="total"} 2',
                      'infra_pve_guests{type="lxc",state="running"} 1',
+                     'infra_pve_guest_running{type="qemu",vmid="104",guest="a"} 1',
+                     'infra_pve_guest_running{type="qemu",vmid="9000",guest="t"} 0',
+                     'infra_pve_guest_running{type="lxc",vmid="106",guest="x"} 1',
+                     'infra_pve_guest_running{type="lxc",vmid="107",guest="locked"} 0',
+                     'infra_pve_guest_running{type="lxc",vmid="108",guest=""} 0',
                      'infra_pve_storage_used_bytes{storage="local-lvm",type="lvmthin"} 921600000000'):
             self.assertIn(line + "\n", text)
         self.assertNotIn("nas", text)
-        self.assertNotIn("104", text)
+        # Guest IDs and names only on the per-guest metric, never the qm memory or disk columns.
+        self.assertNotIn("4096", text)
 
     def test_pve_without_guests(self) -> None:
         for name in ("qm", "pct"):
