@@ -3,13 +3,13 @@
 run by the cointmu-infra-*.timer units (scopes/infra/README.md).
 
     infra-metrics.py smart   SMART health per disk           (smartctl, root)
-    infra-metrics.py pve     guest counts, storage usage     (qm, pct, pvesm, root)
+    infra-metrics.py pve     guest states, storage usage     (qm, pct, pvesm, root)
     infra-metrics.py gpu     utilisation, memory, temperature (nvidia-smi, sysfs)
 
 Each collector writes /var/lib/cointmu-infra/<collector>/<collector>.prom. A host
 without the hardware or the tool gets infra_collector_timestamp_seconds only and
-exit code 0, so its panels stay empty and nothing fails. Numbers and device or
-model names only: no guest names or IDs, no serial numbers, no addresses.
+exit code 0, so its panels stay empty and nothing fails. Numbers, device or model
+names, and Proxmox guest IDs and names: no serial numbers, no addresses.
 
 The folder must be group alloy, mode 2750 (cointmu-infra.tmpfiles.conf): files
 written here then belong to group alloy, which the Alloy agent reads with.
@@ -55,6 +55,7 @@ HELP = {
     "infra_smart_media_errors": "NVMe media and data integrity errors",
     "infra_smart_critical_warning": "NVMe critical warning bits; 0 is fine",
     "infra_pve_guests": "Guests of this Proxmox host by type and state",
+    "infra_pve_guest_running": "1 if this Proxmox guest runs, 0 if not",
     "infra_pve_storage_used_bytes": "Used bytes of an active Proxmox storage",
     "infra_pve_storage_size_bytes": "Size of an active Proxmox storage",
     "infra_gpu_utilization_percent": "GPU utilisation",
@@ -168,12 +169,15 @@ def rows(text: str) -> list[list[str]]:
 def collect_pve(metrics: Metrics) -> None:
     if not shutil.which("qm"):
         return
-    # qm: VMID NAME STATUS ...; pct: VMID Status [Lock] [Name].
-    states = {"qemu": [row[2] for row in rows(output_of("qm", "list"))],
-              "lxc": [row[1] for row in rows(output_of("pct", "list"))]}
-    for kind, values in states.items():
-        metrics.add("infra_pve_guests", values.count("running"), type=kind, state="running")
-        metrics.add("infra_pve_guests", len(values), type=kind, state="total")
+    # qm: VMID NAME STATUS ...; pct: VMID Status [Lock] [Name], the name last when there is one.
+    guests = {"qemu": [(row[0], row[1], row[2]) for row in rows(output_of("qm", "list"))],
+              "lxc": [(row[0], row[-1] if len(row) > 2 else "", row[1]) for row in rows(output_of("pct", "list"))]}
+    for kind, found in guests.items():
+        states = [state for _, _, state in found]
+        metrics.add("infra_pve_guests", states.count("running"), type=kind, state="running")
+        metrics.add("infra_pve_guests", len(states), type=kind, state="total")
+        for vmid, name, state in found:
+            metrics.add("infra_pve_guest_running", int(state == "running"), type=kind, vmid=vmid, guest=name)
     # Name Type Status Total Used Available %, sizes in KiB.
     for name, kind, status, total, used, *_ in rows(output_of("pvesm", "status")):
         if status == "active" and number(total):

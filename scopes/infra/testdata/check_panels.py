@@ -18,6 +18,8 @@ EVAL_TIME = "1600m"
 
 def queries() -> list[str]:
     panels = json.loads(DASHBOARD.read_text())["panels"]
+    # Collapsed rows keep their panels inside the row.
+    panels += [inner for panel in panels for inner in panel.get("panels", [])]
     found = [target["expr"] for panel in panels for target in panel.get("targets", [])]
     return [expr.replace("$host", HOST).replace("$type", "pve") for expr in found]
 
